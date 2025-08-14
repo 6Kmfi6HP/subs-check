@@ -1,33 +1,33 @@
-package proxies
+package proxy
 
 import (
-    "bufio"
-    "bytes"
-    "errors"
-    "fmt"
-    "io"
-    "log/slog"
-    "net/http"
-    u "net/url"
-    "strings"
-    "sync"
-    "time"
+	"bufio"
+	"bytes"
+	"errors"
+	"fmt"
+	"io"
+	"log/slog"
+	"net/http"
+	u "net/url"
+	"strings"
+	"sync"
+	"time"
 
-    "github.com/beck-8/subs-check/config"
-    "github.com/beck-8/subs-check/utils"
-    "github.com/metacubex/mihomo/common/convert"
-    "gopkg.in/yaml.v3"
-    "golang.org/x/net/proxy"
+	"github.com/beck-8/subs-check/config"
+	"github.com/beck-8/subs-check/utils"
+	"github.com/metacubex/mihomo/common/convert"
+	"golang.org/x/net/proxy"
+	"gopkg.in/yaml.v3"
 )
 
 func GetProxies() ([]map[string]any, error) {
-    // 解析本地与远程订阅清单
-    subUrls := resolveSubUrls()
-    slog.Info("订阅链接清单", "本地", len(config.GlobalConfig.SubUrls), "远程使能", config.GlobalConfig.SubUrlsRemote != "", "总计", len(subUrls))
+	// 解析本地与远程订阅清单
+	subUrls := resolveSubUrls()
+	slog.Info("订阅链接清单", "本地", len(config.GlobalConfig.SubUrls), "远程使能", config.GlobalConfig.SubUrlsRemote != "", "总计", len(subUrls))
 
-    var wg sync.WaitGroup
-    proxyChan := make(chan map[string]any, 1)                              // 缓冲通道存储解析的代理
-    concurrentLimit := make(chan struct{}, config.GlobalConfig.Concurrent) // 限制并发数
+	var wg sync.WaitGroup
+	proxyChan := make(chan map[string]any, 1)                              // 缓冲通道存储解析的代理
+	concurrentLimit := make(chan struct{}, config.GlobalConfig.Concurrent) // 限制并发数
 
 	// 启动收集结果的协程
 	var mihomoProxies []map[string]any
@@ -39,10 +39,10 @@ func GetProxies() ([]map[string]any, error) {
 		done <- struct{}{}
 	}()
 
-    // 启动工作协程
-    for _, subUrl := range subUrls {
-        wg.Add(1)
-        concurrentLimit <- struct{}{} // 获取令牌
+	// 启动工作协程
+	for _, subUrl := range subUrls {
+		wg.Add(1)
+		concurrentLimit <- struct{}{} // 获取令牌
 
 		go func(url string) {
 			defer wg.Done()
@@ -105,8 +105,8 @@ func GetProxies() ([]map[string]any, error) {
 					proxyChan <- proxyMap
 				}
 			}
-        }(utils.WarpUrl(subUrl))
-    }
+		}(utils.WarpUrl(subUrl))
+	}
 
 	// 等待所有工作协程完成
 	wg.Wait()
@@ -118,34 +118,34 @@ func GetProxies() ([]map[string]any, error) {
 
 // resolveSubUrls 合并本地与远程订阅清单并去重
 func resolveSubUrls() []string {
-    urls := make([]string, 0, len(config.GlobalConfig.SubUrls))
-    // 本地配置
-    urls = append(urls, config.GlobalConfig.SubUrls...)
+	urls := make([]string, 0, len(config.GlobalConfig.SubUrls))
+	// 本地配置
+	urls = append(urls, config.GlobalConfig.SubUrls...)
 
-    // 远程清单
-    if config.GlobalConfig.SubUrlsRemote != "" {
-        if remote, err := fetchRemoteSubUrls(utils.WarpUrl(config.GlobalConfig.SubUrlsRemote)); err != nil {
-            slog.Warn("获取远程订阅清单失败，已忽略", "err", err)
-        } else {
-            urls = append(urls, remote...)
-        }
-    }
+	// 远程清单
+	if config.GlobalConfig.SubUrlsRemote != "" {
+		if remote, err := fetchRemoteSubUrls(utils.WarpUrl(config.GlobalConfig.SubUrlsRemote)); err != nil {
+			slog.Warn("获取远程订阅清单失败，已忽略", "err", err)
+		} else {
+			urls = append(urls, remote...)
+		}
+	}
 
-    // 规范化与去重
-    seen := make(map[string]struct{}, len(urls))
-    out := make([]string, 0, len(urls))
-    for _, s := range urls {
-        s = strings.TrimSpace(s)
-        if s == "" || strings.HasPrefix(s, "#") { // 跳过空行与注释
-            continue
-        }
-        if _, ok := seen[s]; ok {
-            continue
-        }
-        seen[s] = struct{}{}
-        out = append(out, s)
-    }
-    return out
+	// 规范化与去重
+	seen := make(map[string]struct{}, len(urls))
+	out := make([]string, 0, len(urls))
+	for _, s := range urls {
+		s = strings.TrimSpace(s)
+		if s == "" || strings.HasPrefix(s, "#") { // 跳过空行与注释
+			continue
+		}
+		if _, ok := seen[s]; ok {
+			continue
+		}
+		seen[s] = struct{}{}
+		out = append(out, s)
+	}
+	return out
 }
 
 // fetchRemoteSubUrls 从远程地址读取订阅URL清单
@@ -153,34 +153,34 @@ func resolveSubUrls() []string {
 // 1) 纯文本，按换行分隔，支持以 # 开头的注释与空行
 // 2) YAML/JSON 的字符串数组
 func fetchRemoteSubUrls(listURL string) ([]string, error) {
-    if listURL == "" {
-        return nil, errors.New("empty list url")
-    }
-    data, err := GetDateFromSubs(listURL)
-    if err != nil {
-        return nil, err
-    }
+	if listURL == "" {
+		return nil, errors.New("empty list url")
+	}
+	data, err := GetDateFromSubs(listURL)
+	if err != nil {
+		return nil, err
+	}
 
-    // 优先尝试解析为字符串数组（YAML/JSON兼容）
-    var arr []string
-    if err := yaml.Unmarshal(data, &arr); err == nil && len(arr) > 0 {
-        return arr, nil
-    }
+	// 优先尝试解析为字符串数组（YAML/JSON兼容）
+	var arr []string
+	if err := yaml.Unmarshal(data, &arr); err == nil && len(arr) > 0 {
+		return arr, nil
+	}
 
-    // 回退为按行解析
-    res := make([]string, 0, 16)
-    scanner := bufio.NewScanner(bytes.NewReader(data))
-    for scanner.Scan() {
-        line := strings.TrimSpace(scanner.Text())
-        if line == "" || strings.HasPrefix(line, "#") {
-            continue
-        }
-        res = append(res, line)
-    }
-    if err := scanner.Err(); err != nil {
-        return nil, err
-    }
-    return res, nil
+	// 回退为按行解析
+	res := make([]string, 0, 16)
+	scanner := bufio.NewScanner(bytes.NewReader(data))
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		res = append(res, line)
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+	return res, nil
 }
 
 // 订阅链接中获取数据
@@ -200,22 +200,22 @@ func GetDateFromSubs(subUrl string) ([]byte, error) {
 
 	// 创建HTTP客户端，支持SOCKS5代理
 	transport := &http.Transport{}
-	
+
 	// 如果配置了SOCKS5代理，则使用代理
 	if config.GlobalConfig.Socks5Proxy != "" {
 		slog.Debug("使用SOCKS5代理获取订阅", "proxy", config.GlobalConfig.Socks5Proxy)
-		
+
 		proxyURL, err := u.Parse(config.GlobalConfig.Socks5Proxy)
 		if err != nil {
 			return nil, fmt.Errorf("无效的SOCKS5代理URL: %w", err)
 		}
-		
+
 		// 创建SOCKS5代理拨号器
 		dialer, err := proxy.FromURL(proxyURL, proxy.Direct)
 		if err != nil {
 			return nil, fmt.Errorf("创建SOCKS5代理失败: %w", err)
 		}
-		
+
 		// 设置代理拨号器
 		transport.DialContext = dialer.(proxy.ContextDialer).DialContext
 	}

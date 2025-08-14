@@ -1,12 +1,17 @@
 package method
 
 import (
+	"os"
 	"testing"
 
 	"github.com/beck-8/subs-check/config"
 )
 
 func TestUploadToS3(t *testing.T) {
+	if os.Getenv("RUN_S3_TESTS") == "" {
+		t.Skip("Skipping S3 integration test. Set RUN_S3_TESTS=1 to run.")
+	}
+
 	config.GlobalConfig.S3Endpoint = "127.0.0.1:9000"
 	config.GlobalConfig.S3AccessID = "123"
 	config.GlobalConfig.S3SecretKey = "123"
