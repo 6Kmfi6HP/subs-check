@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"path/filepath"
 	"runtime"
 	"runtime/debug"
 	"sync/atomic"
@@ -59,12 +58,28 @@ func (app *App) Initialize() error {
 		return fmt.Errorf("加载配置文件失败: %w", err)
 	}
 
+	// 初始化 DNS resolver（必须在任何 proxy 连接之前，影响 mihomo 全局 resolver）
+	if err := initResolver(); err != nil {
+		return fmt.Errorf("初始化 DNS 失败: %w", err)
+	}
+
 	// 初始化配置文件监听
 	if err := app.initConfigWatcher(); err != nil {
 		return fmt.Errorf("初始化配置文件监听失败: %w", err)
 	}
 
-	app.interval = config.GlobalConfig.CheckInterval
+	// 从配置文件中读取代理，设置代理
+	if config.GlobalConfig.Proxy != "" {
+		os.Setenv("HTTP_PROXY", config.GlobalConfig.Proxy)
+		os.Setenv("HTTPS_PROXY", config.GlobalConfig.Proxy)
+	}
+
+	app.interval = func() int {
+		if config.GlobalConfig.CheckInterval <= 0 {
+			return 1
+		}
+		return config.GlobalConfig.CheckInterval
+	}()
 
 	if config.GlobalConfig.ListenPort != "" {
 		if err := app.initHttpServer(); err != nil {
@@ -85,7 +100,7 @@ func (app *App) Initialize() error {
 	monitor.StartMemoryMonitor()
 
 	// 设置信号处理器
-	utils.SetupSignalHandler(&check.ForceClose)
+	utils.SetupSignalHandler(check.RequestCancel)
 	return nil
 }
 
@@ -100,8 +115,6 @@ func (app *App) Run() {
 			app.cron.Stop()
 		}
 	}()
-
-	slog.Info(fmt.Sprintf("进度展示: %v", config.GlobalConfig.PrintProgress))
 
 	// 设置初始定时器模式
 	app.setTimer()
@@ -218,21 +231,19 @@ func (app *App) triggerCheck() {
 
 // checkProxies 执行代理检测
 func (app *App) checkProxies() error {
-	slog.Info("开始检测代理")
+	slog.Info("开始准备检测代理", "进度展示", config.GlobalConfig.PrintProgress)
+
+	// 加载历史可用节点到待测队列
+	if config.GlobalConfig.KeepDays > 0 {
+		if hp := save.LoadHistoryProxies(); len(hp) > 0 {
+			config.GlobalProxies = append(config.GlobalProxies, hp...)
+		}
+	}
 
 	results, err := check.Check()
 	if err != nil {
 		return fmt.Errorf("检测代理失败: %w", err)
 	}
-	// 将成功的节点添加到全局中，暂时内存保存
-	if config.GlobalConfig.KeepSuccessProxies {
-		for _, result := range results {
-			if result.Proxy != nil {
-				config.GlobalProxies = append(config.GlobalProxies, result.Proxy)
-			}
-		}
-	}
-
 	slog.Info("检测完成")
 	save.SaveConfig(results)
 	utils.SendNotify(len(results))
@@ -242,8 +253,4 @@ func (app *App) checkProxies() error {
 	utils.ExecuteCallback(len(results))
 
 	return nil
-}
-
-func TempLog() string {
-	return filepath.Join(os.TempDir(), "subs-check.log")
 }

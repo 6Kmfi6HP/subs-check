@@ -8,6 +8,8 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -315,14 +317,30 @@ func WarpUrl(url string) string {
 // - `{Ymd}` - 组合日期 (20230131)
 // - `{Y_m_d}` - 下划线分隔 (2023_01_31)
 // - `{Y-m-d}` - 横线分隔 (2023-01-31)
+//
+// 所有占位符均支持可选的天偏移后缀 `±N`（单位：天）：
+// - `{Ymd+1}` - 明天的组合日期
+// - `{Y-m-d-7}` - 7 天前的横线日期
+// - `{Y+1}` - 明天那天的年份（通常不变，跨年才变化）
+// 偏移统一按"天"计算，不存在月/年进位的歧义。
+var timePlaceholderRe = regexp.MustCompile(`\{(Ymd|Y_m_d|Y-m-d|Y|m|d)([+-]\d+)?\}`)
+
+var timePlaceholderLayouts = map[string]string{
+	"Y":     "2006",
+	"m":     "01",
+	"d":     "02",
+	"Ymd":   "20060102",
+	"Y_m_d": "2006_01_02",
+	"Y-m-d": "2006-01-02",
+}
+
 func formatTimePlaceholders(url string, t time.Time) string {
-	replacer := strings.NewReplacer(
-		"{Y}", t.Format("2006"),
-		"{m}", t.Format("01"),
-		"{d}", t.Format("02"),
-		"{Ymd}", t.Format("20060102"),
-		"{Y_m_d}", t.Format("2006_01_02"),
-		"{Y-m-d}", t.Format("2006-01-02"),
-	)
-	return replacer.Replace(url)
+	return timePlaceholderRe.ReplaceAllStringFunc(url, func(s string) string {
+		m := timePlaceholderRe.FindStringSubmatch(s)
+		offset := 0
+		if m[2] != "" {
+			offset, _ = strconv.Atoi(m[2])
+		}
+		return t.AddDate(0, 0, offset).Format(timePlaceholderLayouts[m[1]])
+	})
 }

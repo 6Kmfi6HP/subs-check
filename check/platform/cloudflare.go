@@ -6,6 +6,7 @@ import (
 	"log/slog"
 )
 
+// 弃用，暂时保留
 func CheckCloudflare(httpClient *http.Client) (bool, error) {
 	if success, err := checkCloudflareEndpoint(httpClient, "https://gstatic.com/generate_204", 204); err == nil && success {
 		// 不要判断这些网站，因为可能403

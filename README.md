@@ -1,8 +1,20 @@
-# 🚀 订阅检测转换工具
+<h1 align="center">🚀 订阅检测转换工具</h1>
+
+<p align="center">
+	<a href="https://github.com/beck-8/subs-check/releases"><img src="https://img.shields.io/github/v/release/beck-8/subs-check?style=flat-square&include_prereleases&label=version" /></a>
+	<a href="https://github.com/beck-8/subs-check/releases"><img src="https://img.shields.io/github/downloads/beck-8/subs-check/total.svg?style=flat-square" /></a>
+  <a href="https://hub.docker.com/r/beck8/subs-check/tags"><img src="https://img.shields.io/docker/pulls/beck8/subs-check" /></a>
+	<a href="https://github.com/beck-8/subs-check/issues"><img src="https://img.shields.io/github/issues-raw/beck-8/subs-check.svg?style=flat-square&label=issues" /></a>
+	<a href="https://github.com/beck-8/subs-check/graphs/contributors"><img src="https://img.shields.io/github/contributors/beck-8/subs-check?style=flat-square" /></a>
+	<a href="https://github.com/beck-8/subs-check/blob/master/LICENSE"><img src="https://img.shields.io/github/license/beck-8/subs-check?style=flat-square" /></a>
+</p>
+
+---
 
 > **✨ 修复逻辑、简化操作、增加功能、节省内存、一键启动无需配置**
 
-> **⚠️ 注意：** 功能更新频繁，请查看最新的[配置文件](https://github.com/beck-8/subs-check/blob/master/config/config.example.yaml)以获取最新功能。
+> **⚠️ 注意：** 功能更新频繁，请查看最新的[配置文件](https://github.com/beck-8/subs-check/blob/master/config/config.example.yaml)以获取最新功能。  
+> **⚠️ 注意：** 如果想要查看功能更新，可以参照 [示例配置提交历史](https://github.com/beck-8/subs-check/commits/master/config/config.example.yaml),这里有变动说明有更功能/逻辑更新
 
 ## 📸 预览
 
@@ -31,6 +43,52 @@
 
 ## 🛠️ 部署与使用 
 > 首次运行会在当前目录生成默认配置文件。
+
+### 🚀 一键安装（Linux）
+
+```bash
+# 默认安装
+bash <(curl -fsSL https://raw.githubusercontent.com/beck-8/subs-check/master/install.sh)
+
+# 使用 wget
+bash <(wget -qO- https://raw.githubusercontent.com/beck-8/subs-check/master/install.sh)
+
+# 如果无法访问 GitHub，可使用代理
+bash <(curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/beck-8/subs-check/master/install.sh) https://ghfast.top/
+
+# Alpine 等无 bash 环境
+wget -qO /tmp/install.sh https://raw.githubusercontent.com/beck-8/subs-check/master/install.sh && sh /tmp/install.sh && rm -f /tmp/install.sh
+```
+
+<details>
+  <summary>脚本说明</summary>
+
+安装脚本会自动执行以下操作：
+1. 检测系统架构（x86_64 / aarch64 / armv7 / i386）
+2. 从 GitHub Releases 下载最新版本
+3. 安装到 `/opt/subs-check` 目录
+4. 配置 systemd 服务
+5. 交互式选择是否开机自启动
+6. 交互式选择是否立即启动
+
+**服务管理：**
+```bash
+systemctl start subs-check    # 启动
+systemctl stop subs-check     # 停止
+systemctl restart subs-check  # 重启
+systemctl status subs-check   # 状态
+journalctl -u subs-check -f   # 日志
+```
+
+**卸载方法：**
+```bash
+systemctl stop subs-check
+systemctl disable subs-check
+rm -rf /opt/subs-check /etc/systemd/system/subs-check.service
+systemctl daemon-reload
+```
+
+</details>
 
 ### 🪜 代理设置（可选）
 <details>
@@ -75,6 +133,7 @@ speed-test-url: https://custom-domain/speedtest?bytes=104857600
 # 1GB
 speed-test-url: https://custom-domain/speedtest?bytes=1073741824
 ```
+
 </details>
 
 ### 🐳 Docker 运行
@@ -172,7 +231,7 @@ sub-urls-remote: "https://example.com/sub-list.txt"
 
 1. 点击[**此处**](https://vercel.com/new/clone?repository-url=https://github.com/beck-8/apprise_vercel)部署 Apprise。
 2. 部署后获取 API 链接，如 `https://testapprise-beck8s-projects.vercel.app/notify`。
-3. 建议为 Vercel 项目设置自定义域名（国内访问 Vercel 可能受限）。
+3. 建议为 Vercel 项目设置自定义域名`diydomain.com`（国内访问 Vercel 可能受限）。
 
 ### 🐳 Docker 部署
 
@@ -196,7 +255,7 @@ docker run --name apprise \
 ```yaml
 # 填写搭建的apprise API server 地址
 # https://notify.xxxx.us.kg/notify
-apprise-api-server: ""
+apprise-api-server: "https://diydomain.com/notify"
 # 填写通知目标
 # 支持100+ 个通知渠道，详细格式请参照 https://github.com/caronc/apprise
 recipient-url: 
@@ -282,11 +341,12 @@ graph TD
     subgraph subs-check 处理流程
         B -->|转成 YAML 格式| B1[节点去重]
         B1 -->|去除冗余节点| B2[测活]
-        B2 -->|节点可用| B3[测速]
+        B2 -->|节点可用| B3[流媒体+重命名]
         B2 -->|节点不可用| X[丢弃]
-        B3 -->|测速达标| B4[流媒体测试]
-        B3 -->|测速不达标| X[丢弃]
-        B4 -->|解锁检测| B5[生成 all.yaml]
+        B3 -->|filter 通过| B4[测速]
+        B3 -->|filter 不通过| X[丢弃]
+        B4 -->|测速达标| B5[生成 all.yaml]
+        B4 -->|测速不达标| X[丢弃]
     end
     B5 -->|保存到 output 目录| C[output 目录]
     B5 -->|上传 all.yaml| D[sub-store]
@@ -306,7 +366,7 @@ graph TD
 </details>
 
 ## 🙏 鸣谢
-[cmliu](https://github.com/cmliu)、[Sub-Store](https://github.com/sub-store-org/Sub-Store)、[bestruirui](https://github.com/bestruirui/BestSub)、[iplark](https://iplark.com/)
+[cmliu](https://github.com/cmliu)、[Sub-Store](https://github.com/sub-store-org/Sub-Store)、[bestruirui](https://github.com/bestruirui/BestSub)、[1password](https://1password.com/)、[ipinfo.io](https://ipinfo.io/)
 
 ## ⭐ Star History
 

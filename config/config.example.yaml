@@ -1,9 +1,15 @@
 # 是否显示进度
 print-progress: true
 
-# 并发线程数
-concurrent: 20
+# 并发线程数（测活阶段使用此值）
+concurrent: 50
+# 流媒体检测并发数（默认等于concurrent）
+media-concurrent: 20
+# 测速并发数（默认等于concurrent）
+# 建议设置较低值，避免并发抢带宽导致测速不准
+speed-concurrent: 20
 # 检查间隔(分钟)
+# 必须大于0，小于等于0会设置间隔1分钟
 check-interval: 120
 # cron表达式，如果配置了此项，将忽略check-interval
 # 支持标准cron表达式，如：
@@ -20,6 +26,9 @@ success-limit: 0
 
 # 超时时间(毫秒)(节点的最大延迟)
 timeout: 5000
+# 延迟测试URL
+# 一些高级用法需要自己摸索，比如想要拒绝某些CF类节点，可将url替换为https://www.cloudflare.com
+alive-test-url: http://gstatic.com/generate_204
 # 测速地址(注意 并发数*节点速度<最大网速 否则测速结果不准确)
 # 尽量不要使用Speedtest，Cloudflare提供的下载链接，因为很多节点屏蔽测速网站
 # 如果找不到稳定的测速地址，可以自建测速地址
@@ -31,7 +40,6 @@ download-timeout: 10
 # 单节点测速下载数据大小(MB)限制，0为不限
 download-mb: 20
 # 总下载速度速度限制(MB/s)，0为不限
-# 限制与实际情况可能会有一定误差
 total-speed-limit: 0
 
 # 监听端口，用于直接返回节点信息，方便订阅转换
@@ -46,8 +54,40 @@ rename-node: true
 # 节点前缀，依赖rename-node为true才生效
 node-prefix: ""
 
+# 只测试指定协议的节点
+node-type:
+  # - ss
+  # - vmess
+  # - vless
+
+# 节点名称过滤，只有匹配任一正则表达式的节点才会被保留
+# 如果为空则不过滤，所有通过测试的节点都会保留
+# 注意：过滤在流媒体检测+重命名之后、测速之前进行。此时节点名称已包含
+#       国家和媒体标签（如 NF-US、GPT⁺、IP 风险百分比），但**不包含速度标签**。
+#       速度标签在测速通过后追加，不参与过滤。
+filter:
+  # === 按地区过滤 ===
+  # - "香港|HK|Hong Kong"        # 保留香港节点
+  # - "新加坡|SG|Singapore"      # 保留新加坡节点
+  # - "台湾|TW|Taiwan"           # 保留台湾节点
+  #
+  # === 按 IP 风险过滤（需开启 media-check 和 iprisk）===
+  # - "\\|[0-4]?[0-9]%"          # 保留 IP 风险 < 50% 的节点
+  # - "\\|[0-9]%\\|"             # 保留 IP 风险 < 10% 的节点（个位数）
+  #
+  # === 按平台解锁过滤（需开启 media-check）===
+  # - "GPT⁺|GPT"                 # 保留解锁 OpenAI 的节点
+  # - "NF"                       # 保留解锁 Netflix 的节点（NF=仅自制剧, NF-US=全解锁）
+  # - "GM"                       # 保留解锁 Gemini 的节点
+  # - "D\\+"                     # 保留解锁 Disney+ 的节点
+  # - "YT-"                      # 保留解锁 YouTube Premium 的节点
+  # - "CL-"                      # 保留解锁 Claude 的节点
+  # - "SP-"                      # 保留解锁 Spotify 的节点
+
 # 是否开启流媒体检测，其中IP欺诈依赖重命名
-media-check: true
+media-check: false
+# 流媒体检测超时时间(秒)，未设置则默认为10秒
+media-check-timeout: 5
 platforms:
   - iprisk
   - tiktok
@@ -56,12 +96,16 @@ platforms:
   - disney
   - openai
   - gemini
-  - iprisk
-  - asn
+  - claude
+  - spotify
+  - asn # 查询 ipdata.co 获取 AS 号，标签形式为 ASxxxxx
 
-# 保留之前测试成功的节点
-# 如果为true，则保留之前测试成功的节点，这样就不会因为上游链接更新，导致可用的节点被清除掉
-keep-success-proxies: false
+# 保留最近N天内可用的历史节点（天）
+# 开启后每次检测会保存节点快照到 output/history/ 目录
+# 下次检测时会将历史节点加入待测队列重新检测，通过的节点才会保留到输出中
+# 过期的历史文件会自动清理
+# 0 = 关闭此功能
+keep-days: 0
 
 # 输出目录
 # 如果为空，则为程序所在目录的config目录
@@ -159,30 +203,47 @@ s3-bucket-lookup: "auto"
 
 # 重试次数(获取订阅失败后重试次数)
 sub-urls-retry: 3
-
-# SOCKS5代理设置，用于获取订阅链接
-# 支持两种格式：
-# 1. 带认证: socks5://username:password@host:port
-# 2. 无认证: socks5://host:port
-# 示例: socks5://clash:clash@192.168.88.5:7999
-# 示例: socks5://192.168.88.5:7999
-# 留空则不使用代理
-socks5-proxy: ""
+# 订阅下载并发数(控制同时拉取多少个订阅链接)
+sub-urls-concurrent: 20
+# 获取订阅时使用的UA；如果设置random将会使用随机UA获取订阅
+# sub-urls-get-ua: "random"
+sub-urls-get-ua: "clash.meta (https://github.com/beck-8/subs-check)"
 # Github Proxy，获取订阅使用，结尾要带的 /
 # github-proxy: "https://ghfast.top/"
 github-proxy: ""
+# 此参数更通用，适用于拉取代理、消息推送、文件上传等等
+# 写法跟环境变量一样。修改需重启生效
+# proxy: "http://username:password@192.168.1.1:7890"
+# proxy: "socks5://username:password@192.168.1.1:7890"
+proxy: ""
 # 符合条件节点数量的占比，低于此值会将订阅链接打印出来，用于排查质量差的订阅
 success-rate: 0
+
+# DNS 配置，支持 udp/tcp/tls/https/quic 协议
+# enable=false 走 mihomo 默认（系统 DNS + 仅 IPv4）；ipv6=true 允许 v6 解析
+# enable=true 三字段可留空，按 proxy-server-nameserver→nameserver→default-nameserver 链回落
+# default-nameserver 用作 bootstrap 必须是纯 IP
+dns:
+  enable: false
+  ipv6: false
+  nameserver:
+    - https://dns.alidns.com/dns-query
+  proxy-server-nameserver:
+    - https://dns.alidns.com/dns-query
+  default-nameserver:
+    - 223.5.5.5
+    - 119.29.29.29
+
 # 远程订阅清单地址；用于集中维护多个订阅链接，避免频繁修改本地文件
 # 支持两种格式：
 # 1) 纯文本：按行分隔，支持 # 注释与空行
 # 2) YAML/JSON：字符串数组 ["https://...", "https://..."]
 # 支持时间占位符与 github-proxy，例如包含 {Ymd}、{Y-m-d}
-sub-urls-remote: ""
-# 示例：
-# sub-urls-remote: "https://raw.githubusercontent.com/your/repo/main/sub-list-{Ymd}.txt"
-# 或（YAML/JSON 数组）
-# sub-urls-remote: "https://example.com/sub-list.yaml"
+sub-urls-remote:
+  # - https://example.com/sub-list.txt
+  # - https://example.com/sub-list.yaml
+  - https://raw.githubusercontent.com/beck-8/sub-urls/refs/heads/main/%E5%B0%8F%E8%80%8C%E7%BE%8E.txt
+
 # 订阅地址 支持 clash/mihomo/v2ray/base64 格式的订阅链接
 # 如果用户想明确使用clash类型，那可以在支持的订阅链接结尾加上 &flag=clash.meta
 # github 链接可自己添加ghproxy使用；订阅链接支持 HTTP_PROXY HTTPS_PROXY 环境变量加速拉取
@@ -192,35 +253,32 @@ sub-urls:
   # - https://example.com/sub2.txt
   # - https://example.com/sub?token=43fa8f0dc9bb00dcfec2afb21b14378a
   # - https://example.com/sub?token=43fa8f0dc9bb00dcfec2afb21b14378a?flag=clash.meta
+    # 所有时间占位符均支持 ±N 天偏移，例如 {Ymd-1} 表示昨天、{Y-m-d+1} 表示明天
   # - https://raw.githubusercontent.com/example/repo/main/config/{Ymd}.yaml
   # - https://raw.githubusercontent.com/example/repo/main/daily/daily-{Y}-{m}-{d}.yaml
+  # - https://raw.githubusercontent.com/example/repo/main/config/{Ymd-1}.yaml
+  # - https://raw.githubusercontent.com/example/repo/main/daily/daily-{Y-m-d+1}.yaml
   # - https://example.com/sub.txt#我是备注我是备注
+  # 打开这个就可以把上次可用的节点再次测一次
+  # - "http://127.0.0.1:8199/sub/all.yaml"
   - "https://raw.githubusercontent.com/firefoxmmx2/v2rayshare_subcription/main/subscription/clash_sub.yaml"
   - "https://raw.githubusercontent.com/Q3dlaXpoaQ/V2rayN_Clash_Node_Getter/refs/heads/main/APIs/sc0.yaml"
-  - "https://raw.githubusercontent.com/xiaoji235/airport-free/refs/heads/main/clash/naidounode.txt"
   - "https://raw.githubusercontent.com/mahdibland/SSAggregator/master/sub/sub_merge_yaml.yml"
   - "https://raw.githubusercontent.com/snakem982/proxypool/main/source/clash-meta.yaml"
   - "https://raw.githubusercontent.com/chengaopan/AutoMergePublicNodes/master/list.yml"
   - "https://raw.githubusercontent.com/zhangkaiitugithub/passcro/main/speednodes.yaml"
   - "https://raw.githubusercontent.com/aiboboxx/v2rayfree/refs/heads/main/README.md"
-  - "https://raw.githubusercontent.com/peasoft/NoMoreWalls/master/list.meta.yml"
-  - "https://raw.githubusercontent.com/anaer/Sub/refs/heads/main/clash.yaml"
-  - "https://raw.githubusercontent.com/free18/v2ray/refs/heads/main/c.yaml"
-  - "https://raw.githubusercontent.com/peasoft/NoMoreWalls/master/list.yml"
+  - "https://raw.githubusercontent.com/peasoft/NoMoreWalls/master/snippets/nodes.meta.yml"
   - "https://raw.githubusercontent.com/Ruk1ng001/freeSub/main/clash.yaml"
   - "https://raw.githubusercontent.com/SoliSpirit/v2ray-configs/main/all_configs.txt"
   - "https://raw.githubusercontent.com/ripaojiedian/freenode/main/clash"
   - "https://raw.githubusercontent.com/go4sharing/sub/main/sub.yaml"
-  - "https://raw.githubusercontent.com/actionsfz/v2ray/refs/heads/master/all.yaml"
-  - "https://raw.githubusercontent.com/Pawdroid/Free-servers/refs/heads/main/sub"
-  - "https://raw.githubusercontent.com/aiboboxx/v2rayfree/refs/heads/main/v2"
-  - "https://raw.githubusercontent.com/acymz/AutoVPN/main/data/V2.txt"
-  - "https://raw.githubusercontent.com/ggborr/FREEE-VPN/refs/heads/main/6V2ray"
-  - "https://raw.githubusercontent.com/Barabama/FreeNodes/main/nodes/wenode.txt"
-  - "https://raw.githubusercontent.com/Barabama/FreeNodes/main/nodes/v2rayshare.txt"
-  - "https://raw.githubusercontent.com/Barabama/FreeNodes/main/nodes/nodefree.txt"
-  - "https://raw.githubusercontent.com/Barabama/FreeNodes/main/nodes/ndnode.txt"
-  - "https://raw.githubusercontent.com/Barabama/FreeNodes/main/nodes/clashmeta.txt"
-  - "https://raw.githubusercontent.com/xiaoji235/airport-free/main/v2ray/v2rayshare.txt"
-  - "https://raw.githubusercontent.com/xiaoji235/airport-free/main/v2ray.txt"
-  - "https://raw.githubusercontent.com/xiaoji235/airport-free/main/clash/naidounode.txt"
+  - https://raw.githubusercontent.com/actionsfz/v2ray/refs/heads/master/all.yaml
+  - https://raw.githubusercontent.com/Pawdroid/Free-servers/refs/heads/main/sub
+  - https://raw.githubusercontent.com/acymz/AutoVPN/main/data/V2.txt
+  - https://raw.githubusercontent.com/Barabama/FreeNodes/main/nodes/wenode.txt
+  - https://raw.githubusercontent.com/Barabama/FreeNodes/main/nodes/v2rayshare.txt
+  - https://raw.githubusercontent.com/Barabama/FreeNodes/main/nodes/nodefree.txt
+  - https://raw.githubusercontent.com/Barabama/FreeNodes/main/nodes/ndnode.txt
+  - https://raw.githubusercontent.com/Barabama/FreeNodes/main/nodes/clashmeta.txt
+  - https://raw.githubusercontent.com/xiaoji235/airport-free/main/v2ray.txt

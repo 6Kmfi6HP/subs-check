@@ -1,56 +1,72 @@
 package proxies
 
 import (
-    "bufio"
-    "bytes"
-    "errors"
-    "fmt"
-    "io"
-    "log/slog"
-    "net/http"
-    u "net/url"
-    "strings"
-    "sync"
-    "time"
+	"bufio"
+	"bytes"
+	"context"
+	"crypto/tls"
+	"errors"
+	"fmt"
+	"io"
+	"log/slog"
+	"net"
+	"net/http"
+	u "net/url"
+	"strings"
+	"sync"
+	"time"
 
-    "github.com/beck-8/subs-check/config"
-    "github.com/beck-8/subs-check/utils"
-    "github.com/metacubex/mihomo/common/convert"
-    "gopkg.in/yaml.v3"
-    "golang.org/x/net/proxy"
+	"github.com/beck-8/2clash/convert"
+	"github.com/beck-8/subs-check/config"
+	"github.com/beck-8/subs-check/utils"
+	"github.com/metacubex/mihomo/component/resolver"
+	"github.com/samber/lo"
+	"gopkg.in/yaml.v3"
 )
 
+type subEntry struct {
+	url    string
+	source string
+}
+
 func GetProxies() ([]map[string]any, error) {
-    // 解析本地与远程订阅清单
-    subUrls := resolveSubUrls()
-    slog.Info("订阅链接清单", "本地", len(config.GlobalConfig.SubUrls), "远程使能", config.GlobalConfig.SubUrlsRemote != "", "总计", len(subUrls))
 
-    var wg sync.WaitGroup
-    proxyChan := make(chan map[string]any, 1)                              // 缓冲通道存储解析的代理
-    concurrentLimit := make(chan struct{}, config.GlobalConfig.Concurrent) // 限制并发数
+	// 解析本地与远程订阅清单
+	subUrls, localNum, remoteNum := resolveSubUrls()
+	slog.Info("订阅链接数量", "本地", localNum, "远程", remoteNum, "总计", len(subUrls))
 
-	// 启动收集结果的协程
-	var mihomoProxies []map[string]any
-	done := make(chan struct{})
-	go func() {
-		for proxy := range proxyChan {
-			mihomoProxies = append(mihomoProxies, proxy)
-		}
-		done <- struct{}{}
-	}()
+	if len(config.GlobalConfig.NodeType) > 0 {
+		slog.Info("只筛选用户设置的协议", "type", config.GlobalConfig.NodeType)
+	}
 
-    // 启动工作协程
-    for _, subUrl := range subUrls {
-        wg.Add(1)
-        concurrentLimit <- struct{}{} // 获取令牌
+	var wg sync.WaitGroup
+	// Subscription-fetch concurrency is decoupled from the alive-check
+	// concurrency: most users want dozens of cheap HTTP fetches in parallel
+	// even when the alive-check pool is tuned large. Falls back to 20 if
+	// the user hasn't set it (zero value).
+	subFetchConcurrency := config.GlobalConfig.SubUrlsConcurrent
+	if subFetchConcurrency <= 0 {
+		subFetchConcurrency = 20
+	}
+	concurrentLimit := make(chan struct{}, subFetchConcurrency) // 限制并发数
 
-		go func(url string) {
+	// 按订阅顺序预分配槽位,每个 goroutine 只写自己的下标,无竞争
+	// 这样即便是并发获取,最终合并时仍能保持 subUrls 的顺序(本地在前,远程在后)
+	buckets := make([][]map[string]any, len(subUrls))
+
+	// 启动工作协程
+	for idx, subUrl := range subUrls {
+		wg.Add(1)
+		concurrentLimit <- struct{}{} // 获取令牌
+
+		go func(i int, e subEntry) {
 			defer wg.Done()
 			defer func() { <-concurrentLimit }() // 释放令牌
 
+			url := e.url
 			data, err := GetDateFromSubs(url)
 			if err != nil {
-				slog.Error(fmt.Sprintf("获取订阅链接错误跳过: %v", err))
+				slog.Error("获取订阅链接错误跳过", "source", e.source, "url", url, "err", err)
 				return
 			}
 
@@ -59,27 +75,40 @@ func GetProxies() ([]map[string]any, error) {
 				tag = d.Fragment
 			}
 
+			var local []map[string]any
+
 			var con map[string]any
 			err = yaml.Unmarshal(data, &con)
 			if err != nil {
 				proxyList, err := convert.ConvertsV2Ray(data)
 				if err != nil {
-					slog.Error(fmt.Sprintf("解析proxy错误: %v", err), "url", url)
+					slog.Error("解析proxy错误", "source", e.source, "url", url, "err", err)
 					return
 				}
-				slog.Debug(fmt.Sprintf("获取订阅链接: %s，有效节点数量: %d", url, len(proxyList)))
+				slog.Debug("获取订阅链接", "source", e.source, "url", url, "count", len(proxyList))
+				local = make([]map[string]any, 0, len(proxyList))
 				for _, proxy := range proxyList {
+					// 只测试指定协议
+					if t, ok := proxy["type"].(string); ok {
+						if len(config.GlobalConfig.NodeType) > 0 && !lo.Contains(config.GlobalConfig.NodeType, t) {
+							continue
+						}
+					}
+
 					// 为每个节点添加订阅链接来源信息和备注
 					proxy["sub_url"] = url
-					proxy["sub_tag"] = tag
-					proxyChan <- proxy
+					if tag != "" {
+						proxy["sub_tag"] = tag
+					}
+					local = append(local, proxy)
 				}
+				buckets[i] = local
 				return
 			}
 
 			proxyInterface, ok := con["proxies"]
 			if !ok || proxyInterface == nil {
-				slog.Error(fmt.Sprintf("订阅链接没有proxies: %s", url))
+				slog.Error("订阅链接没有proxies", "source", e.source, "url", url)
 				return
 			}
 
@@ -87,65 +116,95 @@ func GetProxies() ([]map[string]any, error) {
 			if !ok {
 				return
 			}
-			slog.Debug(fmt.Sprintf("获取订阅链接: %s，有效节点数量: %d", url, len(proxyList)))
+			slog.Debug("获取订阅链接", "source", e.source, "url", url, "count", len(proxyList))
+			local = make([]map[string]any, 0, len(proxyList))
 			for _, proxy := range proxyList {
 				if proxyMap, ok := proxy.(map[string]any); ok {
-					// 虽然支持mihomo支持下划线，但是这里为了规范，还是改成横杠
-					// todo: 不知道后边还有没有这类问题
-					switch proxyMap["type"] {
-					case "hysteria2", "hy2":
-						if _, ok := proxyMap["obfs_password"]; ok {
-							proxyMap["obfs-password"] = proxyMap["obfs_password"]
-							delete(proxyMap, "obfs_password")
+					if t, ok := proxyMap["type"].(string); ok {
+						// 只测试指定协议
+						if len(config.GlobalConfig.NodeType) > 0 && !lo.Contains(config.GlobalConfig.NodeType, t) {
+							continue
+						}
+						// 虽然支持mihomo支持下划线，但是这里为了规范，还是改成横杠
+						// todo: 不知道后边还有没有这类问题
+						switch t {
+						case "hysteria2", "hy2":
+							if _, ok := proxyMap["obfs_password"]; ok {
+								proxyMap["obfs-password"] = proxyMap["obfs_password"]
+								delete(proxyMap, "obfs_password")
+							}
 						}
 					}
 					// 为每个节点添加订阅链接来源信息和备注
 					proxyMap["sub_url"] = url
-					proxyMap["sub_tag"] = tag
-					proxyChan <- proxyMap
+					if tag != "" {
+						proxyMap["sub_tag"] = tag
+					}
+					local = append(local, proxyMap)
 				}
 			}
-        }(utils.WarpUrl(subUrl))
-    }
+			buckets[i] = local
+		}(idx, subEntry{url: utils.WarpUrl(subUrl.url), source: subUrl.source})
+	}
 
 	// 等待所有工作协程完成
 	wg.Wait()
-	close(proxyChan)
-	<-done // 等待收集完成
+
+	// 按订阅顺序合并,保证本地订阅在前、远程订阅在后,订阅内节点顺序也保留
+	total := 0
+	for _, b := range buckets {
+		total += len(b)
+	}
+	mihomoProxies := make([]map[string]any, 0, total)
+	for _, b := range buckets {
+		mihomoProxies = append(mihomoProxies, b...)
+	}
 
 	return mihomoProxies, nil
 }
 
+// from 3k
 // resolveSubUrls 合并本地与远程订阅清单并去重
-func resolveSubUrls() []string {
-    urls := make([]string, 0, len(config.GlobalConfig.SubUrls))
-    // 本地配置
-    urls = append(urls, config.GlobalConfig.SubUrls...)
+func resolveSubUrls() ([]subEntry, int, int) {
+	// 计数
+	var localNum, remoteNum int
+	localNum = len(config.GlobalConfig.SubUrls)
 
-    // 远程清单
-    if config.GlobalConfig.SubUrlsRemote != "" {
-        if remote, err := fetchRemoteSubUrls(utils.WarpUrl(config.GlobalConfig.SubUrlsRemote)); err != nil {
-            slog.Warn("获取远程订阅清单失败，已忽略", "err", err)
-        } else {
-            urls = append(urls, remote...)
-        }
-    }
+	entries := make([]subEntry, 0, len(config.GlobalConfig.SubUrls))
+	// 本地配置
+	for _, u := range config.GlobalConfig.SubUrls {
+		entries = append(entries, subEntry{url: u, source: "本地配置"})
+	}
 
-    // 规范化与去重
-    seen := make(map[string]struct{}, len(urls))
-    out := make([]string, 0, len(urls))
-    for _, s := range urls {
-        s = strings.TrimSpace(s)
-        if s == "" || strings.HasPrefix(s, "#") { // 跳过空行与注释
-            continue
-        }
-        if _, ok := seen[s]; ok {
-            continue
-        }
-        seen[s] = struct{}{}
-        out = append(out, s)
-    }
-    return out
+	// 远程清单
+	if len(config.GlobalConfig.SubUrlsRemote) != 0 {
+		for _, d := range config.GlobalConfig.SubUrlsRemote {
+			if remote, err := fetchRemoteSubUrls(utils.WarpUrl(d)); err != nil {
+				slog.Warn("获取远程订阅清单失败，已忽略", "url", d, "err", err)
+			} else {
+				remoteNum += len(remote)
+				for _, u := range remote {
+					entries = append(entries, subEntry{url: u, source: d})
+				}
+			}
+		}
+	}
+
+	// 规范化与去重
+	seen := make(map[string]struct{}, len(entries))
+	out := make([]subEntry, 0, len(entries))
+	for _, e := range entries {
+		s := strings.TrimSpace(e.url)
+		if s == "" || strings.HasPrefix(s, "#") { // 跳过空行与注释
+			continue
+		}
+		if _, ok := seen[s]; ok {
+			continue
+		}
+		seen[s] = struct{}{}
+		out = append(out, subEntry{url: s, source: e.source})
+	}
+	return out, localNum, remoteNum
 }
 
 // fetchRemoteSubUrls 从远程地址读取订阅URL清单
@@ -153,34 +212,34 @@ func resolveSubUrls() []string {
 // 1) 纯文本，按换行分隔，支持以 # 开头的注释与空行
 // 2) YAML/JSON 的字符串数组
 func fetchRemoteSubUrls(listURL string) ([]string, error) {
-    if listURL == "" {
-        return nil, errors.New("empty list url")
-    }
-    data, err := GetDateFromSubs(listURL)
-    if err != nil {
-        return nil, err
-    }
+	if listURL == "" {
+		return nil, errors.New("empty list url")
+	}
+	data, err := GetDateFromSubs(listURL)
+	if err != nil {
+		return nil, err
+	}
 
-    // 优先尝试解析为字符串数组（YAML/JSON兼容）
-    var arr []string
-    if err := yaml.Unmarshal(data, &arr); err == nil && len(arr) > 0 {
-        return arr, nil
-    }
+	// 优先尝试解析为字符串数组（YAML/JSON兼容）
+	var arr []string
+	if err := yaml.Unmarshal(data, &arr); err == nil && len(arr) > 0 {
+		return arr, nil
+	}
 
-    // 回退为按行解析
-    res := make([]string, 0, 16)
-    scanner := bufio.NewScanner(bytes.NewReader(data))
-    for scanner.Scan() {
-        line := strings.TrimSpace(scanner.Text())
-        if line == "" || strings.HasPrefix(line, "#") {
-            continue
-        }
-        res = append(res, line)
-    }
-    if err := scanner.Err(); err != nil {
-        return nil, err
-    }
-    return res, nil
+	// 回退为按行解析
+	res := make([]string, 0, 16)
+	scanner := bufio.NewScanner(bytes.NewReader(data))
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		res = append(res, line)
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+	return res, nil
 }
 
 // 订阅链接中获取数据
@@ -198,34 +257,28 @@ func GetDateFromSubs(subUrl string) ([]byte, error) {
 	}
 	var lastErr error
 
-	// 创建HTTP客户端，支持SOCKS5代理
-	transport := &http.Transport{}
-	
-	// 如果配置了SOCKS5代理，则使用代理
-	if config.GlobalConfig.Socks5Proxy != "" {
-		slog.Debug("使用SOCKS5代理获取订阅", "proxy", config.GlobalConfig.Socks5Proxy)
-		
-		proxyURL, err := u.Parse(config.GlobalConfig.Socks5Proxy)
-		if err != nil {
-			return nil, fmt.Errorf("无效的SOCKS5代理URL: %w", err)
-		}
-		
-		// 创建SOCKS5代理拨号器
-		dialer, err := proxy.FromURL(proxyURL, proxy.Direct)
-		if err != nil {
-			return nil, fmt.Errorf("创建SOCKS5代理失败: %w", err)
-		}
-		
-		// 设置代理拨号器
-		transport.DialContext = dialer.(proxy.ContextDialer).DialContext
+	transport := &http.Transport{
+		Proxy: http.ProxyFromEnvironment,
+		TLSClientConfig: &tls.Config{
+			InsecureSkipVerify: true,
+		},
+		ForceAttemptHTTP2:     true,
+		MaxIdleConns:          100,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
 	}
-
+	// Route DNS through the configured mihomo resolver so subscription domains aren't leaked to system DNS.
+	// Only when user enabled custom DNS — keeps default behavior unchanged for existing users.
+	if config.GlobalConfig.DNS.Enable {
+		transport.DialContext = newMihomoDialer(time.Duration(timeout) * time.Second)
+	}
 	client := &http.Client{
 		Timeout:   time.Duration(timeout) * time.Second,
 		Transport: transport,
 	}
 
-	for i := 0; i < maxRetries; i++ {
+	for i := range maxRetries {
 		if i > 0 {
 			time.Sleep(time.Duration(retryInterval) * time.Second)
 		}
@@ -236,26 +289,65 @@ func GetDateFromSubs(subUrl string) ([]byte, error) {
 			continue
 		}
 
-		req.Header.Set("User-Agent", "clash.meta")
+		if config.GlobalConfig.SubUrlsGetUA == "random" {
+			req.Header.Set("User-Agent", convert.RandUserAgent())
+		} else {
+			req.Header.Set("User-Agent", config.GlobalConfig.SubUrlsGetUA)
+		}
 
 		resp, err := client.Do(req)
 		if err != nil {
 			lastErr = err
 			continue
 		}
-		defer resp.Body.Close()
 		if resp.StatusCode != 200 {
-			lastErr = fmt.Errorf("订阅链接: %s 返回状态码: %d", subUrl, resp.StatusCode)
+			resp.Body.Close()
+			lastErr = fmt.Errorf("返回状态码: %d", resp.StatusCode)
 			continue
 		}
 
 		body, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
 		if err != nil {
-			lastErr = fmt.Errorf("读取订阅链接: %s 数据错误: %v", subUrl, err)
+			lastErr = fmt.Errorf("读取响应数据错误: %w", err)
 			continue
 		}
 		return body, nil
 	}
 
-	return nil, fmt.Errorf("重试%d次后失败: %v", maxRetries, lastErr)
+	return nil, fmt.Errorf("重试%d次后失败: %w", maxRetries, lastErr)
+}
+
+// newMihomoDialer returns a DialContext that resolves via mihomo's global resolver
+// (DoH when configured) then dials the resulting IP directly, avoiding the OS DNS path.
+// dialTimeout is shared with the request-level timeout from SubUrlsTimeout.
+func newMihomoDialer(dialTimeout time.Duration) func(ctx context.Context, network, addr string) (net.Conn, error) {
+	d := &net.Dialer{Timeout: dialTimeout}
+	return func(ctx context.Context, network, addr string) (net.Conn, error) {
+		host, port, err := net.SplitHostPort(addr)
+		if err != nil {
+			return nil, err
+		}
+		// If addr is already an IP, skip resolution.
+		if ip := net.ParseIP(host); ip != nil {
+			return d.DialContext(ctx, network, addr)
+		}
+		ips, err := resolver.LookupIP(ctx, host)
+		if err != nil {
+			return nil, fmt.Errorf("resolve %s: %w", host, err)
+		}
+		if len(ips) == 0 {
+			return nil, fmt.Errorf("no ip for %s", host)
+		}
+		// Try each IP in turn, returning on the first successful connection.
+		var dialErr error
+		for _, ip := range ips {
+			conn, err := d.DialContext(ctx, network, net.JoinHostPort(ip.String(), port))
+			if err == nil {
+				return conn, nil
+			}
+			dialErr = err
+		}
+		return nil, fmt.Errorf("dial %s: %w", host, dialErr)
+	}
 }

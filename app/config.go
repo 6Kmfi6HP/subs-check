@@ -78,7 +78,11 @@ func (app *App) initConfigWatcher() error {
 				if !ok {
 					return
 				}
-				if event.Op&fsnotify.Write == fsnotify.Write {
+				if absPath, _ := filepath.Abs(app.configPath); event.Name != absPath {
+					continue
+				}
+				// 兼容容器外修改
+				if event.Op&(fsnotify.Write|fsnotify.Create) != 0 {
 					// 如果定时器存在，重置它
 					if debounceTimer != nil {
 						debounceTimer.Stop()
@@ -99,7 +103,12 @@ func (app *App) initConfigWatcher() error {
 						if oldCronExpr != config.GlobalConfig.CronExpression ||
 							oldInterval != config.GlobalConfig.CheckInterval {
 
-							app.interval = config.GlobalConfig.CheckInterval
+							app.interval = func() int {
+								if config.GlobalConfig.CheckInterval <= 0 {
+									return 1
+								}
+								return config.GlobalConfig.CheckInterval
+							}()
 							slog.Warn("检测设置发生变化，重新配置定时器")
 
 							// 使用setTimer方法重新设置定时器
@@ -116,8 +125,8 @@ func (app *App) initConfigWatcher() error {
 		}
 	}()
 
-	// 开始监听配置文件
-	if err := watcher.Add(app.configPath); err != nil {
+	// 开始监听配置文件目录
+	if err := watcher.Add(filepath.Dir(app.configPath)); err != nil {
 		return fmt.Errorf("添加配置文件监听失败: %w", err)
 	}
 

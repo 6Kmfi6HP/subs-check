@@ -1,14 +1,13 @@
 package platform
 
 import (
-	"io"
+	"bytes"
 	"net/http"
 	"regexp"
-	"strings"
 )
 
 // 在body中查找 INNERTUBE_CONTEXT_GL 并提取区域代码
-var re = regexp.MustCompile(`"INNERTUBE_CONTEXT_GL"\s*:\s*"([^"]+)"`)
+var youtubeRe = regexp.MustCompile(`"INNERTUBE_CONTEXT_GL"\s*:\s*"([^"]+)"`)
 
 func CheckYoutube(httpClient *http.Client) (string, error) {
 	// 创建请求
@@ -35,25 +34,26 @@ func CheckYoutube(httpClient *http.Client) (string, error) {
 	defer resp.Body.Close()
 
 	// 读取响应内容
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
+	buf := getPooledBuf()
+	defer putPooledBuf(buf)
+	if _, err := buf.ReadFrom(resp.Body); err != nil {
 		return "", err
 	}
+	body := buf.Bytes()
 
 	// 送中
-	if idx := strings.Index(string(body), "www.google.cn"); idx != -1 {
+	if bytes.Contains(body, []byte("www.google.cn")) {
 		return "CN", nil
 	}
 
-	if idx := strings.Index(string(body), "Premium is not available in your country"); idx != -1 {
+	if bytes.Contains(body, []byte("Premium is not available in your country")) {
 		return "", nil
 	}
 
 	// 先检测上方是否送中，在检测位置
-	match := re.FindStringSubmatch(string(body))
+	match := youtubeRe.FindSubmatch(body)
 	if len(match) > 1 {
-		region := match[1]
-		if region != "" {
+		if region := string(match[1]); region != "" {
 			return region, nil
 		}
 	}

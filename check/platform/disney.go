@@ -1,9 +1,7 @@
 package platform
 
 import (
-	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 )
@@ -33,13 +31,8 @@ func CheckDisney(httpClient *http.Client) (bool, error) {
 	}
 	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return false, err
-	}
-
 	var assertionResp map[string]interface{}
-	if err := json.Unmarshal(body, &assertionResp); err != nil {
+	if err := readJSONPooled(resp.Body, &assertionResp); err != nil {
 		return false, err
 	}
 
@@ -65,13 +58,8 @@ func CheckDisney(httpClient *http.Client) (bool, error) {
 	}
 	defer resp.Body.Close()
 
-	body, err = io.ReadAll(resp.Body)
-	if err != nil {
-		return false, err
-	}
-
 	var tokenResp map[string]interface{}
-	if err := json.Unmarshal(body, &tokenResp); err != nil {
+	if err := readJSONPooled(resp.Body, &tokenResp); err != nil {
 		return false, err
 	}
 
@@ -101,13 +89,8 @@ func CheckDisney(httpClient *http.Client) (bool, error) {
 	}
 	defer resp.Body.Close()
 
-	body, err = io.ReadAll(resp.Body)
-	if err != nil {
-		return false, err
-	}
-
 	var gqlResp map[string]interface{}
-	if err := json.Unmarshal(body, &gqlResp); err != nil {
+	if err := readJSONPooled(resp.Body, &gqlResp); err != nil {
 		return false, err
 	}
 

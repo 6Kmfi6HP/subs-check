@@ -4,15 +4,12 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"net/http"
-	_ "net/http/pprof"
 	"os"
 	"strings"
 
 	"github.com/beck-8/subs-check/app"
 	"github.com/lmittmann/tint"
 	mihomoLog "github.com/metacubex/mihomo/log"
-	"gopkg.in/natefinch/lumberjack.v2"
 )
 
 var Version = "dev"
@@ -31,14 +28,6 @@ func init() {
 	// 获取日志级别
 	logLevel := getLogLevel()
 
-	// 配置日志文件
-	fileLogger := &lumberjack.Logger{
-		Filename:   app.TempLog(),
-		MaxSize:    10,
-		MaxBackups: 3,
-		MaxAge:     7,
-	}
-
 	// 创建两个单独的handler
 	// 1. 终端输出 - 带颜色
 	consoleHandler := tint.NewHandler(os.Stdout, &tint.Options{
@@ -46,8 +35,8 @@ func init() {
 		TimeFormat: "2006-01-02 15:04:05",
 	})
 
-	// 2. 文件输出 - 不带颜色
-	fileHandler := tint.NewHandler(fileLogger, &tint.Options{
+	// 2. 文件输出 - 不带颜色; 写 app.FileLogger ($TMP/subs-check.log),供 web UI 读取
+	fileHandler := tint.NewHandler(app.FileLogger, &tint.Options{
 		Level:      logLevel,
 		TimeFormat: "2006-01-02 15:04:05",
 		NoColor:    true, // 禁用颜色
@@ -72,15 +61,6 @@ func init() {
 	fmt.Println("4. 镜像地址：ghcr.io/beck-8/subs-check:latest")
 	fmt.Println("==================================================")
 
-	if strings.ToLower(os.Getenv("SUB_CHECK_PPROF")) != "" {
-		// 在调试模式下启动 pprof 服务器
-		go func() {
-			slog.Info("Starting pprof server on :61000")
-			if err := http.ListenAndServe(":61000", nil); err != nil {
-				slog.Error("Failed to start pprof server", "error", err)
-			}
-		}()
-	}
 }
 
 func getLogLevel() slog.Level {

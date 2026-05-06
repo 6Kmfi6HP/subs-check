@@ -1,10 +1,9 @@
 package platform
 
 import (
+	"bytes"
 	"fmt"
-	"io"
 	"net/http"
-	"strings"
 
 	"github.com/metacubex/mihomo/common/convert"
 )
@@ -23,37 +22,45 @@ func CheckIPRisk(httpClient *http.Client, ip string) (string, error) {
 
 	if resp.StatusCode == 200 {
 		// 读取响应内容
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
+		buf := getPooledBuf()
+		defer putPooledBuf(buf)
+		if _, err := buf.ReadFrom(resp.Body); err != nil {
 			return "", err
 		}
-		bodyStr := string(body)
-		apiIndex := strings.Index(bodyStr, "IP Fraud Risk API")
+		body := buf.Bytes()
+		marker := []byte("IP Fraud Risk API")
+		apiIndex := bytes.Index(body, marker)
 		if apiIndex == -1 {
 			return "", fmt.Errorf("未找到IP Fraud Risk API")
 		}
 		// 从 "IP Fraud Risk API" 后的内容开始
-		contentAfterAPI := bodyStr[apiIndex+len("IP Fraud Risk API"):]
+		contentAfterAPI := body[apiIndex+len(marker):]
 		// 按行分割
-		lines := strings.Split(contentAfterAPI, "\n")
+		lines := bytes.Split(contentAfterAPI, []byte("\n"))
 
 		if len(lines) < 7 {
 			return "", fmt.Errorf("IP Fraud Risk API响应格式不正确")
 		}
-		var score, rist string
+		var score, rist []byte
 		{
-			score = strings.TrimSpace(lines[4])
-			tmp := strings.Split(score, ":")
-			score = strings.ReplaceAll(tmp[1], "\"", "")
-			score = strings.ReplaceAll(score, ",", "")
+			score = bytes.TrimSpace(lines[4])
+			tmp := bytes.Split(score, []byte(":"))
+			if len(tmp) < 2 {
+				return "", fmt.Errorf("IP Fraud Risk API响应格式不正确")
+			}
+			score = bytes.ReplaceAll(tmp[1], []byte(`"`), nil)
+			score = bytes.ReplaceAll(score, []byte(","), nil)
 
-			rist = strings.TrimSpace(lines[5])
-			tmp = strings.Split(rist, ":")
-			rist = strings.ReplaceAll(tmp[1], "\"", "")
-			rist = strings.ReplaceAll(rist, ",", "")
+			rist = bytes.TrimSpace(lines[5])
+			tmp = bytes.Split(rist, []byte(":"))
+			if len(tmp) < 2 {
+				return "", fmt.Errorf("IP Fraud Risk API响应格式不正确")
+			}
+			rist = bytes.ReplaceAll(tmp[1], []byte(`"`), nil)
+			rist = bytes.ReplaceAll(rist, []byte(","), nil)
 		}
 
-		if score != "" && rist != "" {
+		if len(score) > 0 && len(rist) > 0 {
 			// return fmt.Sprintf("%s%% %s", score, rist), nil
 			return fmt.Sprintf("%s%%", score), nil
 		}

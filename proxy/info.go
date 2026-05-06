@@ -6,36 +6,52 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 
 	"log/slog"
 
-	"github.com/beck-8/subs-check/config"
 	"github.com/metacubex/mihomo/common/convert"
 )
 
+type geoResult struct {
+	loc string
+	ip  string
+}
+
+// 这里需要一个不限流的ipv4的非CF的API
+// 因为ipv6在数据库中没有记载时会变成US。
+// 不能用CF的API是因为我们要保留CF的节点（无proxyip的）
+// GetProxyCountry 并行请求所有 IP 查询端点，按优先级返回最优结果
 func GetProxyCountry(httpClient *http.Client) (loc string, ip string) {
-	for i := 0; i < config.GlobalConfig.SubUrlsReTry; i++ {
-		loc, ip = GetMe(httpClient)
-		if loc != "" && ip != "" {
-			return
-		}
-		loc, ip = GetIPLark(httpClient)
-		if loc != "" && ip != "" {
-			return
-		}
-		loc, ip = GetCFProxy(httpClient)
-		if loc != "" && ip != "" {
-			return
-		}
-		// 不准
-		loc, ip = GetEdgeOneProxy(httpClient)
-		if loc != "" && ip != "" {
-			return
+	// 顺序代表优先级，索引越小质量越高
+	checkers := []func(*http.Client) (string, string){
+		GetMe, GetIpinfo, GetCFProxy, GetEdgeOneProxy,
+	}
+
+	results := make([]geoResult, len(checkers))
+	var wg sync.WaitGroup
+
+	for idx, fn := range checkers {
+		wg.Add(1)
+		go func(i int, f func(*http.Client) (string, string)) {
+			defer wg.Done()
+			l, p := f(httpClient)
+			results[i] = geoResult{l, p}
+		}(idx, fn)
+	}
+
+	wg.Wait()
+
+	// 按优先级返回第一个成功的结果
+	for _, res := range results {
+		if res.loc != "" && res.ip != "" {
+			return res.loc, res.ip
 		}
 	}
 	return
 }
 
+// GetEdgeOneProxy 通过腾讯 EdgeOne 获取地理位置
 func GetEdgeOneProxy(httpClient *http.Client) (loc string, ip string) {
 	type GeoResponse struct {
 		Eo struct {
@@ -53,7 +69,7 @@ func GetEdgeOneProxy(httpClient *http.Client) (loc string, ip string) {
 		return
 	}
 	req.Header.Set("User-Agent", convert.RandUserAgent())
-	resp, err := httpClient.Get(url)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		slog.Debug(fmt.Sprintf("edgeone获取节点位置失败: %s", err))
 		return
@@ -81,6 +97,8 @@ func GetEdgeOneProxy(httpClient *http.Client) (loc string, ip string) {
 	return eo.Eo.Geo.CountryCodeAlpha2, eo.Eo.ClientIp
 }
 
+// GetCFProxy 通过 Cloudflare cdn-cgi/trace 获取地理位置
+// 局限：CF 节点需要 proxyip 落地才能访问套 CF 的网站，trace 返回的是 proxyip 落地位置而非节点真实出口位置
 func GetCFProxy(httpClient *http.Client) (loc string, ip string) {
 	url := "https://www.cloudflare.com/cdn-cgi/trace"
 	req, err := http.NewRequest("GET", url, nil)
@@ -89,7 +107,7 @@ func GetCFProxy(httpClient *http.Client) (loc string, ip string) {
 		return
 	}
 	req.Header.Set("User-Agent", convert.RandUserAgent())
-	resp, err := httpClient.Get(url)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		slog.Debug(fmt.Sprintf("cf获取节点位置失败: %s", err))
 		return
@@ -119,41 +137,42 @@ func GetCFProxy(httpClient *http.Client) (loc string, ip string) {
 	return
 }
 
-func GetIPLark(httpClient *http.Client) (loc string, ip string) {
+// GetIPSB 通过 ip.sb 获取地理位置
+func GetIPSB(httpClient *http.Client) (loc string, ip string) {
 	type GeoIPData struct {
 		IP      string `json:"ip"`
 		Country string `json:"country_code"`
 	}
 
-	url := string([]byte{104, 116, 116, 112, 115, 58, 47, 47, 102, 51, 98, 99, 97, 48, 101, 50, 56, 101, 54, 98, 46, 97, 97, 112, 113, 46, 110, 101, 116, 47, 105, 112, 97, 112, 105, 47, 105, 112, 99, 97, 116})
+	url := "https://api.ip.sb/geoip"
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		slog.Debug(fmt.Sprintf("创建请求失败: %s", err))
 		return
 	}
-	req.Header.Set("User-Agent", "curl/8.7.1")
+	req.Header.Set("User-Agent", convert.RandUserAgent())
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		slog.Debug(fmt.Sprintf("iplark获取节点位置失败: %s", err))
+		slog.Debug(fmt.Sprintf("ip.sb获取节点位置失败: %s", err))
 		return
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		slog.Debug(fmt.Sprintf("iplark返回非200状态码: %v", resp.StatusCode))
+		slog.Debug(fmt.Sprintf("ip.sb返回非200状态码: %v", resp.StatusCode))
 		return
 	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		slog.Debug(fmt.Sprintf("iplark读取节点位置失败: %s", err))
+		slog.Debug(fmt.Sprintf("ip.sb读取节点位置失败: %s", err))
 		return
 	}
 
 	var geo GeoIPData
 	err = json.Unmarshal(body, &geo)
 	if err != nil {
-		slog.Debug(fmt.Sprintf("解析iplark JSON 失败: %v", err))
+		slog.Debug(fmt.Sprintf("解析ip.sb JSON 失败: %v", err))
 		return
 	}
 
@@ -172,7 +191,7 @@ func GetMe(httpClient *http.Client) (loc string, ip string) {
 		slog.Debug(fmt.Sprintf("创建请求失败: %s", err))
 		return
 	}
-	req.Header.Set("User-Agent", "subs-check")
+	req.Header.Set("User-Agent", "subs-check (https://github.com/beck-8/subs-check)")
 	resp, err := httpClient.Do(req)
 	if err != nil {
 		slog.Debug(fmt.Sprintf("me获取节点位置失败: %s", err))
@@ -195,6 +214,49 @@ func GetMe(httpClient *http.Client) (loc string, ip string) {
 	err = json.Unmarshal(body, &geo)
 	if err != nil {
 		slog.Debug(fmt.Sprintf("解析me JSON 失败: %v", err))
+		return
+	}
+
+	return geo.Country, geo.IP
+}
+
+func GetIpinfo(httpClient *http.Client) (loc string, ip string) {
+	type GeoIPData struct {
+		IP      string `json:"ip"`
+		Country string `json:"country_code"`
+	}
+
+	url := string([]byte{104, 116, 116, 112, 115, 58, 47, 47, 97, 112, 105, 46, 105, 112,
+		105, 110, 102, 111, 46, 105, 111, 47, 108, 105, 116, 101, 47, 109, 101, 63, 116,
+		111, 107, 101, 110, 61, 48, 57, 48, 102, 54, 54, 55, 55, 57, 55, 51, 51, 98, 102})
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		slog.Debug(fmt.Sprintf("创建请求失败: %s", err))
+		return
+	}
+	req.Header.Set("User-Agent", "subs-check (https://github.com/beck-8/subs-check)")
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		slog.Debug(fmt.Sprintf("Ipinfo获取节点位置失败: %s", err))
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		slog.Debug(fmt.Sprintf("Ipinfo返回非200状态码: %v", resp.StatusCode))
+		return
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		slog.Debug(fmt.Sprintf("Ipinfo读取节点位置失败: %s", err))
+		return
+	}
+
+	var geo GeoIPData
+	err = json.Unmarshal(body, &geo)
+	if err != nil {
+		slog.Debug(fmt.Sprintf("解析Ipinfo JSON 失败: %v", err))
 		return
 	}
 

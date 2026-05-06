@@ -93,6 +93,7 @@ func startSubStore() error {
 	cmd.Dir = saver.OutputPath
 	cmd.Stdout = logWriter
 	cmd.Stderr = logWriter
+	cmd.Env = os.Environ()
 
 	// 检查MihomoOverwriteUrl是否包含本地IP，如果是则移除代理环境变量
 	cleanProxyEnv := false
@@ -111,12 +112,12 @@ func startSubStore() error {
 	hostPort := strings.Split(config.GlobalConfig.SubStorePort, ":")
 	// host可以为空，port不能为空
 	if len(hostPort) == 2 && hostPort[1] != "" {
-		cmd.Env = append(os.Environ(),
+		cmd.Env = append(cmd.Env,
 			fmt.Sprintf("SUB_STORE_BACKEND_API_HOST=%s", hostPort[0]),
 			fmt.Sprintf("SUB_STORE_BACKEND_API_PORT=%s", hostPort[1]),
 		)
 	} else if len(hostPort) == 1 {
-		cmd.Env = append(os.Environ(), fmt.Sprintf("SUB_STORE_BACKEND_API_PORT=%s", hostPort[0])) // 设置端口
+		cmd.Env = append(cmd.Env, fmt.Sprintf("SUB_STORE_BACKEND_API_PORT=%s", hostPort[0])) // 设置端口
 	} else {
 		return fmt.Errorf("sub-store-port invalid port format: %s", config.GlobalConfig.SubStorePort)
 	}
@@ -144,7 +145,9 @@ func startSubStore() error {
 	}
 
 	// 增加body限制，默认1M
-	cmd.Env = append(cmd.Env, "SUB_STORE_BODY_JSON_LIMIT=30mb")
+	if os.Getenv("SUB_STORE_BODY_JSON_LIMIT") == "" {
+		cmd.Env = append(cmd.Env, "SUB_STORE_BODY_JSON_LIMIT=30mb")
+	}
 	// 增加自定义访问路径
 	if config.GlobalConfig.SubStorePath != "" {
 		cmd.Env = append(cmd.Env, fmt.Sprintf("SUB_STORE_FRONTEND_BACKEND_PATH=%s", config.GlobalConfig.SubStorePath))
