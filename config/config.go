@@ -7,6 +7,7 @@ type Config struct {
 	Concurrent           int      `yaml:"concurrent"`
 	SpeedConcurrent      int      `yaml:"speed-concurrent"`
 	MediaConcurrent      int      `yaml:"media-concurrent"`
+	ShuffleTestOrder     bool     `yaml:"shuffle-test-order"`
 	CheckInterval        int      `yaml:"check-interval"`
 	CronExpression       string   `yaml:"cron-expression"`
 	AliveTestUrl         string   `yaml:"alive-test-url"`

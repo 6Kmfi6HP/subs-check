@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"math/rand/v2"
 	"net"
 	"net/http"
 	"os"
@@ -255,6 +256,10 @@ func (pc *ProxyChecker) run(proxies []map[string]any) ([]Result, error) {
 	speedIn := make(chan pipelineItem, speedConcurrency)
 	collectIn := make(chan pipelineItem, speedConcurrency)
 
+	if config.GlobalConfig.ShuffleTestOrder {
+		slog.Info("已打乱节点测试顺序，输出仍保持订阅原序")
+	}
+
 	// Dispatcher
 	go pipelineDispatch(ctx, proxies, aliveIn)
 
@@ -376,15 +381,28 @@ type pipelineItem struct {
 // SuccessLimit causes the collector to cancel it once N passes have been
 // gathered; goroutines then drain their inputs and exit.
 
-// pipelineDispatch feeds proxies into the alive stage in input order.
+// pipelineDispatch feeds proxies into the alive stage. By default it dispatches
+// in subscription order; with shuffle-test-order on, it dispatches in a random
+// permutation so same-airport / multi-protocol nodes don't cluster in one test
+// window. Either way each task carries its original index, so the collector
+// restores subscription order on output regardless of dispatch sequence.
 // Closes out on exit and honours ctx cancellation.
 func pipelineDispatch(ctx context.Context, proxies []map[string]any, out chan<- aliveTask) {
 	defer close(out)
-	for i, proxy := range proxies {
+
+	order := make([]int, len(proxies))
+	for i := range order {
+		order[i] = i
+	}
+	if config.GlobalConfig.ShuffleTestOrder {
+		rand.Shuffle(len(order), func(a, b int) { order[a], order[b] = order[b], order[a] })
+	}
+
+	for _, i := range order {
 		select {
 		case <-ctx.Done():
 			return
-		case out <- aliveTask{idx: i, proxy: proxy}:
+		case out <- aliveTask{idx: i, proxy: proxies[i]}:
 		}
 	}
 }
