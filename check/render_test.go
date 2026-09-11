@@ -60,10 +60,10 @@ func TestRenderName_RenameOff_WithMediaTags(t *testing.T) {
 			Proxy:   map[string]any{"name": "🇭🇰香港01"},
 			Openai:  &platform.OpenAIResult{Full: true, Region: "HK"},
 			Netflix: &platform.NetflixResult{Full: true, Region: "HK"},
-			Disney:  true,
+			Disney:  &platform.DisneyResult{Unlocked: true, Region: "HK"},
 		}
 		got := RenderName(r, false)
-		want := "🇭🇰香港01|GPT⁺-HK|NF-HK|D+"
+		want := "🇭🇰香港01|GPT⁺-HK|NF-HK|D+-HK"
 		if got != want {
 			t.Errorf("RenderName() = %q, want %q", got, want)
 		}
@@ -190,7 +190,7 @@ func TestRenderName_SubTagAppendedLast(t *testing.T) {
 	}, func() {
 		r := Result{
 			Proxy:  map[string]any{"name": "n", "sub_tag": "my-sub"},
-			Disney: true,
+			Disney: &platform.DisneyResult{Unlocked: true},
 		}
 		got := RenderName(r, false)
 		want := "n|D+|my-sub"

@@ -31,7 +31,7 @@ type Result struct {
 	Netflix    *platform.NetflixResult
 	Google     bool
 	Cloudflare bool
-	Disney     bool
+	Disney     *platform.DisneyResult
 	Gemini     string
 	TikTok     string
 	Claude     string
@@ -625,9 +625,8 @@ func (pc *ProxyChecker) checkMedia(a aliveResult) *Result {
 				mediaWg.Add(1)
 				go func() {
 					defer mediaWg.Done()
-					if ok, _ := platform.CheckDisney(mediaClient); ok {
-						res.Disney = true
-					}
+					d, _ := platform.CheckDisney(mediaClient)
+					res.Disney = d
 				}()
 			case "gemini":
 				mediaWg.Add(1)

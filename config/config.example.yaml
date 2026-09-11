@@ -83,7 +83,7 @@ filter:
   # - "GPT⁺|GPT"                 # 保留解锁 OpenAI 的节点
   # - "NF"                       # 保留解锁 Netflix 的节点（NF=仅自制剧, NF-US=全解锁）
   # - "GM"                       # 保留解锁 Gemini 的节点
-  # - "D\\+"                     # 保留解锁 Disney+ 的节点
+  # - "D\\+"                     # 保留解锁 Disney+ 的节点（D+=解锁但未知地区, D+-US=解锁并知道地区）
   # - "YT-"                      # 保留解锁 YouTube Premium 的节点
   # - "CL-"                      # 保留解锁 Claude 的节点
   # - "SP-"                      # 保留解锁 Spotify 的节点
@@ -223,16 +223,18 @@ proxy: ""
 # 符合条件节点数量的占比，低于此值会将订阅链接打印出来，用于排查质量差的订阅
 success-rate: 0
 
+# 是否允许 IPv6/AAAA 解析和连接
+ipv6: true
+
 # DNS 配置，支持 udp/tcp/tls/https/quic 协议
-# enable=false 走 mihomo 默认（系统 DNS + 仅 IPv4）；ipv6=true 允许 v6 解析
+# enable=false 使用系统 DNS；enable=true 使用以下自定义 DNS
 # enable=true 三字段可留空，按 proxy-server-nameserver→nameserver→default-nameserver 链回落
 # default-nameserver 用作 bootstrap 必须是纯 IP
 dns:
   enable: false
-  ipv6: false
-  nameserver:
-    - https://dns.alidns.com/dns-query
   proxy-server-nameserver:
+    - https://dns.alidns.com/dns-query
+  nameserver:
     - https://dns.alidns.com/dns-query
   default-nameserver:
     - 223.5.5.5
@@ -268,7 +270,6 @@ sub-urls:
   - "https://raw.githubusercontent.com/firefoxmmx2/v2rayshare_subcription/main/subscription/clash_sub.yaml"
   - "https://raw.githubusercontent.com/Q3dlaXpoaQ/V2rayN_Clash_Node_Getter/refs/heads/main/APIs/sc0.yaml"
   - "https://raw.githubusercontent.com/mahdibland/SSAggregator/master/sub/sub_merge_yaml.yml"
-  - "https://raw.githubusercontent.com/snakem982/proxypool/main/source/clash-meta.yaml"
   - "https://raw.githubusercontent.com/chengaopan/AutoMergePublicNodes/master/list.yml"
   - "https://raw.githubusercontent.com/zhangkaiitugithub/passcro/main/speednodes.yaml"
   - "https://raw.githubusercontent.com/aiboboxx/v2rayfree/refs/heads/main/README.md"

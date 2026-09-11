@@ -90,7 +90,10 @@ func mediaTagFor(plat string, r *Result) string {
 			}
 		}
 	case "disney":
-		if r.Disney {
+		if r.Disney != nil && r.Disney.Unlocked {
+			if r.Disney.Region != "" {
+				return fmt.Sprintf("D+-%s", r.Disney.Region)
+			}
 			return "D+"
 		}
 	case "gemini":

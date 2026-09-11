@@ -29,11 +29,10 @@ var defaultBootstrapNameservers = []string{
 func initResolver() error {
 	c := &config.GlobalConfig.DNS
 
-	// IPv6 toggle applies regardless of Enable — a user can flip on v6 without replacing the resolver.
-	resolver.DisableIPv6 = !c.IPv6
+	// The global IPv6 toggle applies to both the system and custom resolvers.
+	resolver.DisableIPv6 = !config.GlobalConfig.IPv6
 
 	if !c.Enable {
-		slog.Info("DNS resolver 使用 mihomo 默认", "ipv6", c.IPv6)
 		return nil
 	}
 
@@ -69,17 +68,17 @@ func initResolver() error {
 		Main:        main,
 		Default:     def,
 		ProxyServer: proxySrv,
-		IPv6:        c.IPv6,
+		IPv6:        config.GlobalConfig.IPv6,
 	})
 
 	resolver.DefaultResolver = rs.Resolver
 	resolver.ProxyServerHostResolver = rs.ProxyResolver
 
-	slog.Info("DNS resolver 已初始化",
+	slog.Info("DNS resolver 使用自定义 DNS",
 		"nameserver", len(main),
 		"proxy-server", len(proxySrv),
 		"default", len(def),
-		"ipv6", c.IPv6)
+		"ipv6", config.GlobalConfig.IPv6)
 	return nil
 }
 

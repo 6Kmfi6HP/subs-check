@@ -4,14 +4,22 @@ import (
 	"bytes"
 	"net/http"
 	"regexp"
+	"strings"
 )
 
-// 在body中查找 INNERTUBE_CONTEXT_GL 并提取区域代码
-var youtubeRe = regexp.MustCompile(`"INNERTUBE_CONTEXT_GL"\s*:\s*"([^"]+)"`)
+// youtubeReList 按优先级排列的区域提取正则,前面匹配不到才尝试后面的,
+// 避免像旧版那样依赖单一正则,一旦谷歌调整页面结构就整体检测失效。
+var youtubeReList = []*regexp.Regexp{
+	regexp.MustCompile(`"INNERTUBE_CONTEXT_GL"\s*:\s*"([^"]+)"`),
+	regexp.MustCompile(`id=["']country-code["'][^>]*>\s*([A-Za-z]{2,3})\s*<`),
+	regexp.MustCompile(`"GL"\s*:\s*"([A-Za-z]{2})"`),
+	regexp.MustCompile(`"countryCode"\s*:\s*"([A-Za-z]{2})"`),
+	regexp.MustCompile(`"country_code"\s*:\s*"([A-Za-z]{2})"`),
+}
 
 func CheckYoutube(httpClient *http.Client) (string, error) {
 	// 创建请求
-	req, err := http.NewRequest("GET", "https://www.youtube.com/premium", nil)
+	req, err := http.NewRequest("GET", "https://www.youtube.com/premium?hl=en", nil)
 	if err != nil {
 		return "", err
 	}
@@ -46,15 +54,29 @@ func CheckYoutube(httpClient *http.Client) (string, error) {
 		return "CN", nil
 	}
 
-	if bytes.Contains(body, []byte("Premium is not available in your country")) {
+	bodyLower := bytes.ToLower(body)
+
+	if bytes.Contains(bodyLower, []byte("premium is not available in your country")) ||
+		bytes.Contains(bodyLower, []byte("premium is not available in your region")) {
 		return "", nil
 	}
 
-	// 先检测上方是否送中，在检测位置
-	match := youtubeRe.FindSubmatch(body)
-	if len(match) > 1 {
-		if region := string(match[1]); region != "" {
-			return region, nil
+	// 必须状态码 2xx 且命中正向关键字才认为真正解锁,
+	// 否则仅凭区域正则命中就判定解锁,遇到未开通地区的落地页也会误判。
+	unlocked := resp.StatusCode >= 200 && resp.StatusCode < 300 &&
+		(bytes.Contains(bodyLower, []byte("youtube premium")) ||
+			bytes.Contains(bodyLower, []byte("ad-free")) ||
+			bytes.Contains(bodyLower, []byte(`"browseid":"spunlimited"`)))
+	if !unlocked {
+		return "", nil
+	}
+
+	for _, re := range youtubeReList {
+		match := re.FindSubmatch(body)
+		if len(match) > 1 {
+			if region := strings.ToUpper(string(match[1])); region != "" {
+				return region, nil
+			}
 		}
 	}
 

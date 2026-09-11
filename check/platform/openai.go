@@ -119,5 +119,10 @@ func checkClient(httpClient *http.Client) bool {
 	body := buf.Bytes()
 
 	bodyLower := bytes.ToLower(body)
-	return !bytes.Contains(bodyLower, []byte("unsupported_country")) && !bytes.Contains(bodyLower, []byte("vpn"))
+	// "disallowed isp" 是部分ISP被ChatGPT专门屏蔽时返回的文案,不属于 unsupported_country/vpn
+	// 的范畴,旧逻辑只否定这两者会把这种情况误判为可用。
+	return !bytes.Contains(bodyLower, []byte("unsupported_country")) &&
+		!bytes.Contains(bodyLower, []byte("vpn")) &&
+		!bytes.Contains(bodyLower, []byte("disallowed isp")) &&
+		!bytes.Contains(bodyLower, []byte("sorry, you have been blocked"))
 }
