@@ -3,6 +3,7 @@ package app
 import (
 	"bytes"
 	"crypto/subtle"
+	"errors"
 	"fmt"
 	"html/template"
 	"io"
@@ -15,6 +16,8 @@ import (
 
 	"github.com/beck-8/subs-check/check"
 	"github.com/beck-8/subs-check/config"
+	"github.com/beck-8/subs-check/export"
+	"github.com/beck-8/subs-check/save"
 	"github.com/beck-8/subs-check/save/method"
 	"github.com/gin-contrib/pprof"
 	"github.com/gin-gonic/gin"
@@ -31,11 +34,33 @@ func (app *App) initHttpServer() error {
 	// DefaultWriter / DefaultErrorWriter at call time, so assign first.
 	gin.DefaultWriter = GinFileLogger
 	gin.DefaultErrorWriter = GinFileLogger
+
+	router, err := app.newRouter()
+	if err != nil {
+		return err
+	}
+
+	// 启动HTTP服务器
+	go func() {
+		for {
+			if err := router.Run(config.GlobalConfig.ListenPort); err != nil {
+				slog.Error(fmt.Sprintf("HTTP服务器启动失败，正在重启中: %v", err))
+			}
+			time.Sleep(30 * time.Second)
+		}
+	}()
+	slog.Info("HTTP服务器启动", "port", config.GlobalConfig.ListenPort)
+	return nil
+}
+
+// newRouter registers all routes. It is split from listening so tests can catch
+// gin route conflicts, which panic at registration.
+func (app *App) newRouter() (*gin.Engine, error) {
 	router := gin.Default()
 
 	saver, err := method.NewLocalSaver()
 	if err != nil {
-		return fmt.Errorf("获取http监听目录失败: %w", err)
+		return nil, fmt.Errorf("获取http监听目录失败: %w", err)
 	}
 
 	// 静态文件路由 - 订阅服务相关，始终启用
@@ -49,6 +74,10 @@ func (app *App) initHttpServer() error {
 	router.StaticFile("/bdg.yaml", saver.OutputPath+"/bdg.yaml")
 
 	router.Static("/sub/", saver.OutputPath)
+
+	// Public export: serves only files generated from the admin page, never converts.
+	// Not under /sub/, which would conflict with the static route above.
+	router.GET("/export/:target", app.exportHandler)
 
 	// pprof 路由，空闲时不消耗性能
 	pprof.Register(router)
@@ -71,7 +100,7 @@ func (app *App) initHttpServer() error {
 		// 内置静态资源（bootstrap / bootstrap-icons / monaco-editor），避免依赖外部 CDN
 		staticFS, err := fs.Sub(configFS, "static")
 		if err != nil {
-			return fmt.Errorf("加载内置静态资源失败: %w", err)
+			return nil, fmt.Errorf("加载内置静态资源失败: %w", err)
 		}
 		router.StaticFS("/static", http.FS(staticFS))
 
@@ -92,29 +121,129 @@ func (app *App) initHttpServer() error {
 
 			// 日志相关API
 			api.GET("/logs", app.getLogs)
+
+			// Results and export API
+			api.GET("/results", app.getResults)
+			api.GET("/export", app.getExportStatus)
+			api.POST("/export/:target", app.generateExport)
+			api.DELETE("/export/:target", app.disableExport)
 		}
 
 		// 配置页面
 		router.GET("/admin", func(c *gin.Context) {
 			c.HTML(http.StatusOK, "admin.html", gin.H{
 				"configPath": app.configPath,
+				"nav":        "admin",
 			})
+		})
+
+		// Results page
+		router.GET("/admin/results", func(c *gin.Context) {
+			c.HTML(http.StatusOK, "results.html", gin.H{"nav": "results"})
 		})
 	} else {
 		slog.Info("Web控制面板已禁用")
 	}
 
-	// 启动HTTP服务器
-	go func() {
-		for {
-			if err := router.Run(config.GlobalConfig.ListenPort); err != nil {
-				slog.Error(fmt.Sprintf("HTTP服务器启动失败，正在重启中: %v", err))
-			}
-			time.Sleep(30 * time.Second)
+	return router, nil
+}
+
+// exportHandler serves a generated export. It is public and never triggers a conversion.
+func (app *App) exportHandler(c *gin.Context) {
+	id := c.Param("target")
+	if t, ok := export.Lookup(id); !ok || t.Preset {
+		c.String(http.StatusNotFound, export.ErrUnknownTarget.Error())
+		return
+	}
+	served, err := export.Default().Open(id)
+	if err != nil {
+		if errors.Is(err, export.ErrNotGenerated) {
+			c.String(http.StatusNotFound, err.Error())
+			return
 		}
-	}()
-	slog.Info("HTTP服务器启动", "port", config.GlobalConfig.ListenPort)
-	return nil
+		slog.Error(fmt.Sprintf("读取导出订阅 %s 失败: %v", id, err))
+		c.String(http.StatusInternalServerError, "读取导出订阅失败")
+		return
+	}
+	defer served.File.Close()
+	c.Header("Content-Type", served.ContentType)
+	c.Header("Cache-Control", "no-cache")
+	http.ServeContent(c.Writer, c.Request, "", served.ModTime, served.File)
+}
+
+// getResults returns the latest round snapshot.
+func (app *App) getResults(c *gin.Context) {
+	data, err := os.ReadFile(save.ResultsPath())
+	if errors.Is(err, fs.ErrNotExist) {
+		c.JSON(http.StatusOK, gin.H{"nodes": []any{}})
+		return
+	}
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("读取检测结果失败: %v", err)})
+		return
+	}
+	c.Header("Cache-Control", "no-store")
+	c.Data(http.StatusOK, "application/json; charset=utf-8", data)
+}
+
+// getExportStatus returns the state of every export target.
+func (app *App) getExportStatus(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{
+		"enabled": export.Enabled(),
+		"targets": export.Default().Statuses(),
+	})
+}
+
+// generateExport starts converting a target in the background and keeps it
+// rebuilt after each round. The client polls /api/export for the outcome.
+func (app *App) generateExport(c *gin.Context) {
+	id := c.Param("target")
+	t, ok := export.Lookup(id)
+	if !ok {
+		c.JSON(http.StatusNotFound, gin.H{"error": export.ErrUnknownTarget.Error()})
+		return
+	}
+	if t.Preset {
+		c.JSON(http.StatusBadRequest, gin.H{"error": export.ErrPreset.Error()})
+		return
+	}
+	if !export.Enabled() {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "未启用 sub-store（sub-store-port 为空），无法导出订阅"})
+		return
+	}
+
+	status, err := export.Default().Generate(id)
+	var cooldown *export.CooldownError
+	switch {
+	case err == nil:
+		c.JSON(http.StatusAccepted, status)
+	case errors.As(err, &cooldown):
+		c.JSON(http.StatusTooManyRequests, gin.H{"error": err.Error(), "status": status})
+	default:
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error(), "status": status})
+	}
+}
+
+// disableExport stops rebuilding a target and removes its files; its public link then returns 404.
+func (app *App) disableExport(c *gin.Context) {
+	id := c.Param("target")
+	t, ok := export.Lookup(id)
+	if !ok {
+		c.JSON(http.StatusNotFound, gin.H{"error": export.ErrUnknownTarget.Error()})
+		return
+	}
+	if t.Preset {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "该格式每轮检测完成后自动生成，不能停用"})
+		return
+	}
+
+	status, err := export.Default().Disable(id)
+	if err != nil {
+		slog.Warn(fmt.Sprintf("停用导出订阅 %s 失败: %v", id, err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error(), "status": status})
+		return
+	}
+	c.JSON(http.StatusOK, status)
 }
 
 // authMiddleware API认证中间件
@@ -189,14 +318,14 @@ func (app *App) getStatus(c *gin.Context) {
 		"speedPass":  check.SpeedOk.Load(),
 	}
 	c.JSON(http.StatusOK, gin.H{
-		"checking":      app.checking.Load(),
-		"proxyCount":    check.ProxyCount.Load(),
-		"available":     check.Available.Load(),
-		"progress":      check.Progress.Load(),
-		"phase":         check.Phase.Load(),
-		"phaseResults":  phaseResults,
-		"pipeline":      pipeline,
-		"hasSpeedTest":  config.GlobalConfig.SpeedTestUrl != "",
+		"checking":     app.checking.Load(),
+		"proxyCount":   check.ProxyCount.Load(),
+		"available":    check.Available.Load(),
+		"progress":     check.Progress.Load(),
+		"phase":        check.Phase.Load(),
+		"phaseResults": phaseResults,
+		"pipeline":     pipeline,
+		"hasSpeedTest": config.GlobalConfig.SpeedTestUrl != "",
 	})
 }
 

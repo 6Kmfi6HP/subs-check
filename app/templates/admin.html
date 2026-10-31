@@ -7,496 +7,334 @@
     <link href="/static/bootstrap/bootstrap.min.css" rel="stylesheet">
     <link href="/static/bootstrap-icons/bootstrap-icons.css" rel="stylesheet">
     <link href="/static/monaco/vs/editor/editor.main.css" rel="stylesheet">
+    <link href="/static/css/app.css" rel="stylesheet">
     <style>
-        :root {
-            --bg-primary: #f0f2f5;
-            --bg-card: #ffffff;
-            --border-color: #e8ecf1;
-            --text-primary: #1a1a2e;
-            --text-secondary: #6c757d;
-            --accent-blue: #4361ee;
-            --accent-green: #2ec4b6;
-            --accent-red: #e63946;
-            --accent-yellow: #f4a261;
-            --accent-cyan: #4cc9f0;
-            --shadow-sm: 0 1px 3px rgba(0,0,0,0.08);
-            --shadow-md: 0 4px 12px rgba(0,0,0,0.1);
-            --radius: 10px;
-        }
-
-        body {
-            padding: 20px;
-            background-color: var(--bg-primary);
-            color: var(--text-primary);
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-        }
-
-        /* 主内容行 — 两列 card 等高。卡片用显式 vh-calc 高度锚定,内部再用
-           flex 把 logs / editor 撑满剩余空间,避免任何一列的"自然高度"反
-           过来拉扯另一列导致空白。 */
-        .main-row { display: flex; flex-wrap: wrap; }
-        .main-row > [class*="col-"] { display: flex; }
-        .main-row .card { display: flex; flex-direction: column; width: 100%; }
-        /* card-body 成为 flex column 容器,让 logs-container / editor 可以
-           flex:1 填满剩余空间(扣除同卡内的 header 和 progress-section)。 */
-        .main-row .card > .card-body {
-            flex: 1 1 auto;
-            overflow: hidden;
+        /* The dashboard fills the viewport below the top bar, so both panels share one
+           height without magic offsets; the log list and editor flex into the rest. */
+        .dashboard {
             display: flex;
             flex-direction: column;
-            min-height: 0;
+            gap: 16px;
+            max-width: var(--page-max);
+            height: calc(100vh - var(--topbar-h));
+            height: calc(100dvh - var(--topbar-h));
+            min-height: 640px;
+            margin: 0 auto;
+            padding: 16px 24px 24px;
         }
-
-        /* editor-wrapper 用 flex 拿 card-body 的剩余高度;#editor 用 absolute
-           充满 wrapper,这样 Monaco 在初始化时能立即测出明确的尺寸,不会因
-           为嵌套 flex 测量时机的问题渲染成空白。 */
-        .editor-wrapper {
-            position: relative;
+        .workspace {
+            display: grid;
+            grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+            gap: 16px;
             flex: 1 1 auto;
             min-height: 0;
         }
-
-        #editor {
-            position: absolute;
-            inset: 0;
-            border: none;
-            margin-bottom: 0;
+        .workspace > .panel {
+            display: flex;
+            flex-direction: column;
+            min-width: 0;
+            min-height: 0;
+            overflow: hidden;
         }
 
-        /* 日志容器样式 - flex:1 填满 card-body 剩余空间 */
+        /* Control bar: config file, API key, status and actions */
+        .controlbar {
+            display: flex;
+            flex: none;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 10px 24px;
+            padding: 9px 12px 9px 16px;
+        }
+        .cb-field { display: flex; align-items: center; gap: 10px; min-width: 0; }
+        .cb-config { flex: 1 1 260px; }
+        .cb-label {
+            display: inline-flex;
+            flex: none;
+            align-items: center;
+            gap: 6px;
+            margin: 0;
+            color: var(--text-2);
+            font-size: 13px;
+            font-weight: 500;
+            white-space: nowrap;
+        }
+        .cb-label .bi { color: var(--text-3); }
+        .cb-value { min-width: 0; color: var(--text); font-size: 12.5px; }
+        .key-input { position: relative; width: 240px; }
+        .key-input .form-control { padding-right: 34px; }
+        .key-input .icon-btn { position: absolute; top: 2px; right: 2px; width: 26px; height: 26px; font-size: 14px; }
+        .cb-actions { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+        .status-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            height: 28px;
+            margin-right: 4px;
+            padding: 0 11px;
+            border-radius: 999px;
+            background: var(--surface-2);
+            color: var(--text-2);
+            font-size: 12.5px;
+            font-weight: 500;
+            white-space: nowrap;
+        }
+        .status-pill.status-idle { background: var(--success-soft); color: var(--success-text); }
+        .status-pill.status-running { background: var(--primary-soft); color: var(--primary); }
+        .status-pill.status-error { background: var(--danger-soft); color: var(--danger-text); }
+
+        /* Logs */
         .logs-container {
             flex: 1 1 auto;
             min-height: 0;
+            margin: 0;
+            padding: 12px 16px;
             overflow-y: auto;
             background-color: #1e1e2e;
-            padding: 14px;
-            font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
-            font-size: 12px;
-            white-space: pre-wrap;
-            border: none;
-            margin-bottom: 0;
             color: #cdd6f4;
-            border-radius: 0;
+            font-family: var(--mono);
+            font-size: 12px;
+            line-height: 1.65;
+            white-space: pre-wrap;
+            word-break: break-word;
         }
-
-        /* 桌面: 两列 card 锁死到 vh-calc,同等高度,内部 flex 自分配。
-           这套数跟老 logs-container 的 calc(100vh-440px) 接近(减 300 后
-           再减 header ~36 + progress ~90 ≈ vh-426),视觉上差不多。 */
-        @media (min-width: 992px) {
-            .main-row .card {
-                height: calc(100vh - 300px);
-                min-height: 400px;
-            }
-        }
-
-        @media (min-width: 1600px) {
-            .main-row .card {
-                height: calc(100vh - 350px);
-            }
-        }
-
-        /* 响应式调整: 窄屏 block 堆叠没有 flex 父容器,直接给 editor-wrapper
-           和 logs-container 显式高度,不靠 flex。#editor 还是 absolute 充满
-           wrapper,所以高度落在 wrapper 上而不是 #editor 自己。 */
-        @media (max-width: 991px) {
-            body { padding: 12px; }
-            .main-row { display: block; }
-            .main-row .card { height: auto; }
-            .editor-wrapper { flex: none; height: calc(100vh - 285px); }
-            .logs-container { flex: none; height: calc(100vh - 390px); }
-            .card-header { padding: 0.5rem 0.75rem; }
-            .card-body { padding: 0.75rem; }
-            .card { margin-bottom: 15px; }
-        }
-
-        @media (max-width: 768px) {
-            body { padding: 8px; }
-            .editor-wrapper { flex: none; height: 420px; }
-            .logs-container { flex: none; height: 350px; }
-            .status-item { margin-bottom: 8px; }
-            .config-path {
-                max-width: 100%;
-                white-space: normal;
-                word-break: break-all;
-                font-size: 0.85em;
-            }
-            .card { margin-bottom: 12px; }
-            .progress-section { padding: 10px; }
-            .phase-steps { flex-wrap: wrap; gap: 6px; }
-        }
-
-        /* 卡片样式 */
-        .card {
-            margin-bottom: 16px;
-            border: 1px solid var(--border-color);
-            border-radius: var(--radius);
-            box-shadow: var(--shadow-sm);
-            overflow: hidden;
-        }
-
-        .card-header {
-            background-color: var(--bg-card);
-            border-bottom: 1px solid var(--border-color);
-            font-weight: 600;
-            font-size: 0.9rem;
-        }
-
-        /* 日志颜色样式 - 暗色主题 */
         .log-info { color: #a6e3a1; }
         .log-error { color: #f38ba8; }
         .log-warn { color: #f9e2af; }
         .log-debug { color: #89b4fa; }
         .log-time { color: #7f849c; }
 
-        /* 状态栏 */
-        .status-bar {
-            background-color: var(--bg-card);
-            padding: 12px 16px;
-            margin-bottom: 16px;
-            border-radius: var(--radius);
-            border: 1px solid var(--border-color);
-            box-shadow: var(--shadow-sm);
-        }
-
-        .config-path {
-            white-space: normal;
-            word-break: break-all;
-            color: var(--text-secondary);
-            font-size: 0.85em;
-        }
-
-        .api-key-form { margin-bottom: 16px; }
-
-        /* 按钮样式 */
-        .btn {
-            padding: 6px 14px;
-            font-size: 0.85rem;
-            border-radius: 8px;
-            font-weight: 500;
-            transition: all 0.2s ease;
-        }
-
-        .btn:hover { transform: translateY(-1px); box-shadow: var(--shadow-sm); }
-        .btn:active { transform: translateY(0); }
-
-        .btn-sm {
-            padding: 4px 10px;
-            font-size: 0.78rem;
-        }
-
-        .btn-primary {
-            background-color: var(--accent-blue);
-            border-color: var(--accent-blue);
-        }
-
-        .btn-danger {
-            background-color: var(--accent-red);
-            border-color: var(--accent-red);
-        }
-
-        .btn-success {
-            background-color: var(--accent-green);
-            border-color: var(--accent-green);
-        }
-
-        /* 提示框 */
-        .alert {
-            padding: 0.75rem 1rem;
-            margin-bottom: 16px;
-            border: none;
-            border-radius: var(--radius);
-            box-shadow: var(--shadow-sm);
-        }
-
-        .alert-info {
-            background-color: #eef2ff;
-            color: #3730a3;
-        }
-
-        .alert-info a {
-            color: #3730a3;
-            text-decoration: underline;
-            font-weight: 500;
-        }
-
-        .form-control {
-            border-radius: 8px;
-            border: 1px solid var(--border-color);
-            transition: border-color 0.2s ease, box-shadow 0.2s ease;
-        }
-
-        .form-control:focus {
-            border-color: var(--accent-blue);
-            box-shadow: 0 0 0 3px rgba(67, 97, 238, 0.15);
-        }
-
-        h1 {
-            color: var(--text-primary);
-            font-size: 1.6rem;
-            font-weight: 700;
-            margin-bottom: 0.5rem;
-        }
-
-        /* 旋转动画 */
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-
-        .rotate-animation {
-            animation: spin 1s linear infinite;
-            display: inline-block;
-        }
-
-        /* 配置编辑器蒙版 */
-        .editor-overlay {
-            position: absolute;
-            top: 0; left: 0; right: 0; bottom: 0;
-            background-color: rgba(240, 242, 245, 0.92);
-            backdrop-filter: blur(10px);
-            -webkit-backdrop-filter: blur(10px);
-            z-index: 10;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            cursor: pointer;
-        }
-
-        .editor-overlay-message {
-            background-color: var(--bg-card);
-            color: var(--text-secondary);
-            padding: 16px 24px;
-            border-radius: var(--radius);
-            box-shadow: var(--shadow-md);
-            text-align: center;
-        }
-
-        /* 阶段步骤指示器 */
-        .phase-steps {
-            display: flex;
-            gap: 8px;
-            margin-bottom: 10px;
-        }
-
-        .phase-step {
-            flex: 1;
-            text-align: center;
-            padding: 6px 8px;
-            border-radius: 8px;
-            font-size: 0.78rem;
-            font-weight: 600;
-            background-color: #f0f2f5;
-            color: var(--text-secondary);
-            border: 1px solid var(--border-color);
-            transition: all 0.3s ease;
-        }
-
-        .phase-step.active {
-            background-color: var(--accent-blue);
-            color: white;
-            border-color: var(--accent-blue);
-            box-shadow: 0 2px 8px rgba(67, 97, 238, 0.3);
-        }
-
-        .phase-step.done {
-            background-color: #d1fae5;
-            color: #065f46;
-            border-color: #a7f3d0;
-        }
-
-        .phase-step .phase-icon {
-            margin-right: 4px;
-        }
-
-        .phase-step .phase-count {
-            display: block;
-            font-size: 0.7rem;
-            font-weight: 400;
-            opacity: 0.85;
-            margin-top: 2px;
-        }
-
-        /* 进度条样式 */
+        /* Pipeline progress */
         .progress-section {
-            padding: 14px;
-            background-color: var(--bg-card);
-            border-top: 1px solid var(--border-color);
+            display: flex;
+            flex: none;
+            flex-direction: column;
+            gap: 12px;
+            padding: 14px 16px 16px;
+            border-top: 1px solid var(--border);
+            background: var(--surface);
         }
+        .phase-steps { display: flex; gap: 8px; }
+        .phase-step {
+            position: relative;
+            display: flex;
+            flex: 1 1 0;
+            align-items: center;
+            gap: 10px;
+            min-width: 0;
+            padding: 8px 10px;
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            background: var(--surface-2);
+            transition: background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+        }
+        .phase-icon {
+            display: grid;
+            flex: none;
+            place-items: center;
+            width: 28px;
+            height: 28px;
+            border-radius: 8px;
+            background: #eceff5;
+            color: var(--text-3);
+            font-size: 14px;
+            transition: background-color 0.2s ease, color 0.2s ease;
+        }
+        .phase-text { display: flex; flex-direction: column; min-width: 0; line-height: 1.35; }
+        .phase-name { overflow: hidden; color: var(--text); font-size: 12.5px; font-weight: 600; white-space: nowrap; text-overflow: ellipsis; }
+        .phase-count,
+        .phase-link-hint { color: var(--text-2); font-size: 11.5px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+        .phase-count:empty::before { content: "—"; color: var(--text-3); }
+        .phase-step.active { background: var(--primary-soft); border-color: rgba(67, 97, 238, 0.3); }
+        .phase-step.active .phase-icon { background: var(--primary); color: #fff; }
+        .phase-step.active .phase-name { color: var(--primary); }
+        .phase-step.done { background: var(--success-soft); border-color: rgba(46, 196, 182, 0.35); }
+        .phase-step.done .phase-icon { background: var(--success); color: #fff; }
+        .phase-step.done .phase-name { color: var(--success-text); }
 
+        /* When idle, the last finished stage links to the results page */
+        .phase-link-hint,
+        .phase-link-chev { display: none; }
+        .phase-step.phase-link { padding-right: 26px; cursor: pointer; }
+        .phase-step.phase-link .phase-link-chev {
+            display: block;
+            position: absolute;
+            top: 50%;
+            right: 10px;
+            color: var(--success-text);
+            font-size: 12px;
+            opacity: 0.6;
+            transform: translateY(-50%);
+            transition: opacity 0.2s ease, transform 0.2s ease;
+        }
+        .phase-step.phase-link:hover,
+        .phase-step.phase-link:focus-visible {
+            border-color: var(--success);
+            box-shadow: 0 4px 12px rgba(46, 196, 182, 0.18);
+            outline: none;
+            transform: translateY(-1px);
+        }
+        .phase-step.phase-link:hover .phase-link-chev,
+        .phase-step.phase-link:focus-visible .phase-link-chev { opacity: 1; transform: translate(2px, -50%); }
+        .phase-step.phase-link:hover .phase-count,
+        .phase-step.phase-link:focus-visible .phase-count { display: none; }
+        .phase-step.phase-link:hover .phase-link-hint,
+        .phase-step.phase-link:focus-visible .phase-link-hint { display: block; color: var(--success-text); font-weight: 500; }
+
+        .progress-stats { display: flex; flex-direction: column; gap: 4px; }
         .progress-info {
             display: flex;
             justify-content: space-between;
-            margin-bottom: 6px;
-            font-size: 13px;
-            color: var(--text-secondary);
+            gap: 12px;
+            color: var(--text-2);
+            font-size: 12.5px;
+            font-variant-numeric: tabular-nums;
         }
-
         .progress {
-            height: 12px;
             position: relative;
-            background-color: #e9ecef;
-            border-radius: 6px;
+            height: 8px;
+            border-radius: 999px;
+            background-color: #eceff5;
             overflow: hidden;
         }
-
         .progress-bar {
+            position: absolute;
+            top: 0;
+            left: 0;
+            height: 100%;
+            border-radius: 999px;
             transition: width 0.5s ease;
-            border-radius: 6px;
         }
-
-        .progress-bar-success {
-            background: linear-gradient(90deg, #2ec4b6, #28a745);
-            position: absolute;
-            height: 100%;
-            left: 0; top: 0;
-            z-index: 10;
-            box-shadow: 0 0 10px rgba(46, 196, 182, 0.4);
-        }
-
-        .progress-bar-total {
-            background-color: rgba(67, 97, 238, 0.25);
-            position: absolute;
-            height: 100%;
-            left: 0; top: 0;
-            z-index: 5;
-        }
-
-        /* 闪烁效果 */
+        .progress-bar-total { z-index: 1; background: rgba(67, 97, 238, 0.22); }
+        .progress-bar-success { z-index: 2; background: linear-gradient(90deg, #2ec4b6, #22b07d); }
         @keyframes pulse {
-            0% { opacity: 0.7; }
+            0%, 100% { opacity: 0.7; }
             50% { opacity: 1; }
-            100% { opacity: 0.7; }
+        }
+        .success-highlight { color: var(--success-text); font-weight: 700; animation: pulse 1.5s infinite; }
+
+        /* Editor: #editor is absolutely positioned so Monaco measures a definite size on init */
+        .editor-wrapper { position: relative; flex: 1 1 auto; min-height: 0; }
+        #editor { position: absolute; inset: 0; }
+        .editor-overlay {
+            position: absolute;
+            inset: 0;
+            z-index: 10;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background-color: rgba(245, 246, 250, 0.82);
+            -webkit-backdrop-filter: blur(8px);
+            backdrop-filter: blur(8px);
+            cursor: pointer;
+        }
+        .editor-overlay-message {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 12px 18px;
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            background: var(--surface);
+            color: var(--text-2);
+            font-size: 13px;
+            box-shadow: 0 8px 24px rgba(22, 27, 45, 0.08);
+            transition: color 0.2s ease, transform 0.2s ease;
+        }
+        .editor-overlay:hover .editor-overlay-message { color: var(--text); transform: translateY(-1px); }
+
+        /* Narrow screens stack the panels; give logs and editor explicit heights */
+        @media (max-width: 991.98px) {
+            .dashboard { height: auto; min-height: 0; gap: 12px; padding: 12px; }
+            .workspace { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+            .logs-container { flex: none; height: 50vh; min-height: 320px; }
+            .editor-wrapper { flex: none; height: 70vh; min-height: 420px; }
+            .cb-actions { margin-left: 0; }
         }
 
-        .success-highlight {
-            animation: pulse 1.5s infinite;
-            font-weight: bold;
-            color: var(--accent-green);
-            padding: 1px 4px;
-            border-radius: 4px;
-            background-color: rgba(46, 196, 182, 0.1);
+        @media (max-width: 575.98px) {
+            .cb-field,
+            .cb-actions { width: 100%; }
+            .key-input { flex: 1; width: auto; }
+            .cb-actions .status-pill { margin-right: auto; }
+            .phase-steps { flex-wrap: wrap; }
+            .phase-step { flex: 1 1 140px; }
         }
-
-        /* 版本标签 */
-        .version-badge {
-            display: inline-block;
-            padding: 2px 10px;
-            border-radius: 20px;
-            background-color: #eef2ff;
-            color: var(--accent-blue);
-            font-size: 0.78rem;
-            font-weight: 500;
-        }
-
-        /* 日志容器滚动条 */
-        .logs-container::-webkit-scrollbar { width: 6px; }
-        .logs-container::-webkit-scrollbar-track { background: transparent; }
-        .logs-container::-webkit-scrollbar-thumb { background: #45475a; border-radius: 3px; }
-        .logs-container::-webkit-scrollbar-thumb:hover { background: #585b70; }
     </style>
 </head>
 <body>
-    <div class="container-fluid">
-        <div class="row align-items-center mb-3">
-            <div class="col-md-8 col-sm-12">
-                <h1 class="mb-0"><i class="bi bi-speedometer2 me-2"></i>Subs Check 配置管理</h1>
-            </div>
-            <div class="col-md-4 col-sm-12 text-md-end">
-                <span class="version-badge" id="versionInfo">版本: 加载中...</span>
-            </div>
-        </div>
+    {{template "topbar" .}}
 
-        <!-- 项目信息 -->
-        <div class="alert alert-info mb-3 d-flex justify-content-between align-items-center">
-            <div>
-                <i class="bi bi-github me-2"></i>项目地址:
-                <a href="https://github.com/beck-8/subs-check" target="_blank" class="text-break">https://github.com/beck-8/subs-check</a>
+    <main class="dashboard">
+        <section class="panel controlbar">
+            <div class="cb-field cb-config">
+                <span class="cb-label"><i class="bi bi-file-earmark-code"></i>配置文件</span>
+                <span class="cb-value mono ellipsis" title="{{.configPath}}">{{.configPath}}</span>
             </div>
-            <div class="d-none d-md-block">
-                <small>订阅检测工具</small>
-            </div>
-        </div>
-
-        <!-- API密钥输入表单 -->
-        <div class="card api-key-form">
-            <div class="card-body py-2">
-                <div class="row align-items-center">
-                    <div class="col-md-3 col-sm-12 mb-sm-2">
-                        <label for="apiKey" class="form-label mb-0"><strong><i class="bi bi-key me-1"></i>API密钥:</strong></label>
-                    </div>
-                    <div class="col-md-7 col-sm-8">
-                        <div class="input-group">
-                            <input type="password" class="form-control" id="apiKey" placeholder="请输入API密钥">
-                            <button class="btn btn-outline-secondary" type="button" id="toggleApiKey">
-                                <i class="bi bi-eye-slash"></i>
-                            </button>
-                        </div>
-                    </div>
-                    <div class="col-md-2 col-sm-4 text-end mt-sm-2">
-                        <button id="saveApiKey" class="btn btn-primary btn-sm">保存密钥</button>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- 状态栏 -->
-        <div class="status-bar">
-            <div class="row align-items-center">
-                <div class="col-md-5 col-sm-12 status-item">
-                    <strong><i class="bi bi-file-earmark-code me-1"></i>配置文件:</strong>
-                    <span class="config-path" title="{{.configPath}}">{{.configPath}}</span>
-                </div>
-                <div class="col-md-3 col-sm-6 status-item">
-                    <strong><i class="bi bi-activity me-1"></i>状态:</strong>
-                    <span id="statusContainer">
-                        <span id="statusIcon" class="bi me-1"></span>
-                        <span id="nextCheckTime">加载中...</span>
-                    </span>
-                </div>
-                <div class="col-md-4 col-sm-6 status-item text-md-end">
-                    <button id="forceClose" class="btn btn-danger btn-sm me-2">
-                        <i class="bi bi-stop-circle me-1"></i>强制停止
-                    </button>
-                    <button id="triggerCheck" class="btn btn-primary btn-sm">
-                        <i class="bi bi-play-fill me-1"></i>立即检测
+            <div class="cb-field cb-key">
+                <label class="cb-label" for="apiKey"><i class="bi bi-key"></i>API 密钥</label>
+                <div class="key-input">
+                    <input type="password" class="form-control form-control-sm" id="apiKey" placeholder="请输入API密钥" autocomplete="off">
+                    <button class="icon-btn" type="button" id="toggleApiKey" title="显示/隐藏密钥">
+                        <i class="bi bi-eye-slash"></i>
                     </button>
                 </div>
+                <button id="saveApiKey" class="btn btn-soft btn-sm" type="button">保存密钥</button>
             </div>
-        </div>
+            <div class="cb-actions">
+                <span id="statusContainer" class="status-pill">
+                    <span id="statusIcon" class="bi bi-hourglass-split"></span>
+                    <span id="nextCheckTime">加载中...</span>
+                </span>
+                <button id="forceClose" class="btn btn-danger-soft btn-sm" type="button">
+                    <i class="bi bi-stop-circle"></i>强制停止
+                </button>
+                <button id="triggerCheck" class="btn btn-primary btn-sm" type="button">
+                    <i class="bi bi-play-fill"></i>立即检测
+                </button>
+            </div>
+        </section>
 
-        <!-- 主要内容区域 -->
-        <div class="row main-row">
-            <!-- 左侧日志区域 -->
-            <div class="col-lg-5 col-md-12">
-                <div class="card">
-                    <div class="card-header">
-                        <div class="d-flex justify-content-between align-items-center">
-                            <span><i class="bi bi-terminal me-1"></i>最近日志</span>
-                            <button id="refreshLogs" class="btn btn-secondary btn-sm">
-                                <i class="bi bi-arrow-repeat me-1"></i>刷新
-                            </button>
-                        </div>
-                    </div>
-                    <div class="card-body p-0">
-                        <div id="logs" class="logs-container"></div>
-                    </div>
-                    <!-- 进度条区域 -->
-                    <div id="progressSection" class="progress-section">
-                        <!-- 阶段步骤指示器 -->
-                        <div id="phaseSteps" class="phase-steps" style="display: none;">
-                            <div id="phaseStep1" class="phase-step" data-phase="1">
-                                <span class="phase-icon"><i class="bi bi-heart-pulse"></i></span>测活
+        <div class="workspace">
+            <section class="panel">
+                <div class="panel-header">
+                    <h2 class="panel-title"><i class="bi bi-terminal"></i>最近日志</h2>
+                    <button id="refreshLogs" class="btn btn-ghost btn-sm" type="button">
+                        <i class="bi bi-arrow-repeat"></i>刷新
+                    </button>
+                </div>
+                <div id="logs" class="logs-container scroll-dark"></div>
+                <div id="progressSection" class="progress-section">
+                    <div id="phaseSteps" class="phase-steps" style="display: none;">
+                        <div id="phaseStep1" class="phase-step" data-phase="1">
+                            <span class="phase-icon"><i class="bi bi-heart-pulse"></i></span>
+                            <span class="phase-text">
+                                <span class="phase-name">测活</span>
                                 <span class="phase-count" id="phaseCount1"></span>
-                            </div>
-                            <div id="phaseStep2" class="phase-step" data-phase="2">
-                                <span class="phase-icon"><i class="bi bi-film"></i></span>流媒体+重命名
-                                <span class="phase-count" id="phaseCount2"></span>
-                            </div>
-                            <div id="phaseStep3" class="phase-step" data-phase="3">
-                                <span class="phase-icon"><i class="bi bi-speedometer"></i></span>测速
-                                <span class="phase-count" id="phaseCount3"></span>
-                            </div>
+                                <span class="phase-link-hint">查看结果</span>
+                            </span>
+                            <i class="bi bi-chevron-right phase-link-chev"></i>
                         </div>
+                        <div id="phaseStep2" class="phase-step" data-phase="2">
+                            <span class="phase-icon"><i class="bi bi-film"></i></span>
+                            <span class="phase-text">
+                                <span class="phase-name">流媒体+重命名</span>
+                                <span class="phase-count" id="phaseCount2"></span>
+                                <span class="phase-link-hint">查看结果</span>
+                            </span>
+                            <i class="bi bi-chevron-right phase-link-chev"></i>
+                        </div>
+                        <div id="phaseStep3" class="phase-step" data-phase="3">
+                            <span class="phase-icon"><i class="bi bi-speedometer"></i></span>
+                            <span class="phase-text">
+                                <span class="phase-name">测速</span>
+                                <span class="phase-count" id="phaseCount3"></span>
+                                <span class="phase-link-hint">查看结果</span>
+                            </span>
+                            <i class="bi bi-chevron-right phase-link-chev"></i>
+                        </div>
+                    </div>
+                    <div class="progress-stats">
                         <div class="progress-info">
                             <div>处理进度: <span id="progressText">N/A</span></div>
                             <div><span id="progressPercent">N/A</span></div>
@@ -505,47 +343,40 @@
                             <div id="successLabel">成功节点: <span id="successText">N/A</span></div>
                             <div><span id="processPercent">N/A</span></div>
                         </div>
-                        <div class="progress">
-                            <div id="progressBarSuccess" class="progress-bar progress-bar-success" role="progressbar" style="width: 0%"></div>
-                            <div id="progressBarTotal" class="progress-bar progress-bar-total" role="progressbar" style="width: 0%"></div>
-                        </div>
+                    </div>
+                    <div class="progress">
+                        <div id="progressBarSuccess" class="progress-bar progress-bar-success" role="progressbar" style="width: 0%"></div>
+                        <div id="progressBarTotal" class="progress-bar progress-bar-total" role="progressbar" style="width: 0%"></div>
                     </div>
                 </div>
-            </div>
+            </section>
 
-            <!-- 右侧配置编辑器 -->
-            <div class="col-lg-7 col-md-12">
-                <div class="card">
-                    <div class="card-header">
-                        <div class="d-flex justify-content-between align-items-center">
-                            <span><i class="bi bi-gear me-1"></i>配置编辑器</span>
-                            <div>
-                                <button id="toggleConfig" class="btn btn-outline-secondary btn-sm me-2" title="显示/隐藏配置">
-                                    <i class="bi bi-eye-slash"></i>
-                                </button>
-                                <button id="saveConfig" class="btn btn-success btn-sm">
-                                    <i class="bi bi-save me-1"></i>保存
-                                </button>
-                                <button id="reloadConfig" class="btn btn-secondary btn-sm ms-2">
-                                    <i class="bi bi-arrow-repeat me-1"></i>重载
-                                </button>
-                            </div>
-                        </div>
+            <section class="panel">
+                <div class="panel-header">
+                    <h2 class="panel-title"><i class="bi bi-sliders"></i>配置编辑器</h2>
+                    <div class="panel-actions">
+                        <button id="toggleConfig" class="icon-btn bordered" type="button" title="显示/隐藏配置">
+                            <i class="bi bi-eye-slash"></i>
+                        </button>
+                        <button id="reloadConfig" class="btn btn-ghost btn-sm" type="button">
+                            <i class="bi bi-arrow-repeat"></i>重载
+                        </button>
+                        <button id="saveConfig" class="btn btn-primary btn-sm" type="button">
+                            <i class="bi bi-save"></i>保存
+                        </button>
                     </div>
-                    <div class="card-body p-0">
-                        <div class="editor-wrapper">
-                            <div id="editor"></div>
-                            <div id="editorOverlay" class="editor-overlay">
-                                <div class="editor-overlay-message">
-                                    <i class="bi bi-eye-slash me-2"></i>配置已隐藏，点击查看
-                                </div>
-                            </div>
+                </div>
+                <div class="editor-wrapper">
+                    <div id="editor"></div>
+                    <div id="editorOverlay" class="editor-overlay">
+                        <div class="editor-overlay-message">
+                            <i class="bi bi-eye-slash"></i>配置已隐藏，点击查看
                         </div>
                     </div>
                 </div>
-            </div>
+            </section>
         </div>
-    </div>
+    </main>
 
     <!-- Bootstrap JS -->
     <script src="/static/bootstrap/bootstrap.bundle.min.js"></script>
@@ -623,6 +454,7 @@
                     loadConfig();
                     loadLogs();
                     updateStatus();
+                    getVersionInfo();
                     return true;
                 } else {
                     throw new Error('验证失败');
@@ -669,11 +501,16 @@
                 theme: 'vs',
                 automaticLayout: true,
                 minimap: { enabled: false },
+                fontFamily: getComputedStyle(document.documentElement).getPropertyValue('--mono').trim(),
                 fontSize: 13,
                 lineHeight: 20,
-                padding: { top: 10 },
+                padding: { top: 12, bottom: 12 },
                 scrollBeyondLastLine: false,
                 renderLineHighlight: 'gutter',
+                overviewRulerBorder: false,
+                hideCursorInOverviewRuler: true,
+                // Match the page's thin scrollbars.
+                scrollbar: { verticalScrollbarSize: 10, horizontalScrollbarSize: 10, useShadows: false },
             });
 
             loadConfig();
@@ -771,7 +608,7 @@
             const button = this;
             const icon = button.querySelector('i');
             const originalIcon = icon.className;
-            icon.className = 'bi bi-arrow-repeat me-1 rotate-animation';
+            icon.className = 'bi bi-arrow-repeat rotate-animation';
             button.disabled = true;
 
             fetch('/api/force-close', {
@@ -798,7 +635,7 @@
             const button = this;
             const icon = button.querySelector('i');
             const originalIcon = icon.className;
-            icon.className = 'bi bi-arrow-repeat me-1 rotate-animation';
+            icon.className = 'bi bi-arrow-repeat rotate-animation';
             button.disabled = true;
 
             fetch('/api/trigger-check', {
@@ -921,6 +758,40 @@
             }
         }
 
+        // When idle, the last finished stage card (usually speed test) opens the results page.
+        function updateResultsLink(idle) {
+            let target = 0;
+            if (idle) {
+                for (let i = 3; i >= 1; i--) {
+                    if (phaseStepEls[i].classList.contains('done')) { target = i; break; }
+                }
+            }
+            for (let i = 1; i <= 3; i++) {
+                const step = phaseStepEls[i];
+                const on = i === target;
+                step.classList.toggle('phase-link', on);
+                if (on) {
+                    step.setAttribute('role', 'link');
+                    step.setAttribute('tabindex', '0');
+                    step.setAttribute('title', '查看检测结果');
+                } else {
+                    step.removeAttribute('role');
+                    step.removeAttribute('tabindex');
+                    step.removeAttribute('title');
+                }
+            }
+        }
+
+        dom.phaseSteps.addEventListener('click', function(e) {
+            if (e.target.closest('.phase-link')) window.location.href = '/admin/results';
+        });
+        dom.phaseSteps.addEventListener('keydown', function(e) {
+            if ((e.key === 'Enter' || e.key === ' ') && e.target.closest('.phase-link')) {
+                e.preventDefault();
+                window.location.href = '/admin/results';
+            }
+        });
+
         // 更新进度条
         function updateProgressBar(total, processed, available, phase, phaseResults) {
             const percentTotal = total > 0 ? (processed / total * 100).toFixed(1) : 0;
@@ -1010,6 +881,13 @@
             }
         }
 
+        // Status pill in the control bar: kind is idle | running | error.
+        function setStatus(kind, icon, text) {
+            dom.statusContainer.className = 'status-pill status-' + kind;
+            dom.statusIcon.className = 'bi ' + icon;
+            dom.statusText.textContent = text;
+        }
+
         function updateStatus() {
             fetch('/api/status', {
                 headers: addApiKeyHeader()
@@ -1021,9 +899,7 @@
             .then(data => {
                 if (data) {
                     if (data.checking) {
-                        dom.statusContainer.className = 'text-primary';
-                        dom.statusIcon.className = 'bi bi-arrow-repeat me-1 rotate-animation';
-                        dom.statusText.textContent = '正在检测中...';
+                        setStatus('running', 'bi-arrow-repeat rotate-animation', '正在检测中...');
 
                         if (data.pipeline) {
                             updatePipelineBar(data.pipeline, !!data.hasSpeedTest);
@@ -1032,21 +908,19 @@
                             // legacy fallback (older server)
                             updateProgressBar(data.proxyCount, data.progress, data.available, data.phase, data.phaseResults);
                         }
+                        updateResultsLink(false);
                     } else {
-                        dom.statusContainer.className = 'text-success';
-                        dom.statusIcon.className = 'bi bi-check-circle me-1';
-                        dom.statusText.textContent = '空闲';
+                        setStatus('idle', 'bi-check-circle-fill', '空闲');
 
                         updatePhaseSteps(0, 0, 0, data.phaseResults);
                         resetProgress();
+                        updateResultsLink(true);
                     }
                 }
             })
             .catch(error => {
                 console.error('获取状态失败:', error);
-                dom.statusContainer.className = 'text-danger';
-                dom.statusIcon.className = 'bi bi-exclamation-triangle me-1';
-                dom.statusText.textContent = '获取状态失败';
+                setStatus('error', 'bi-exclamation-triangle-fill', '获取状态失败');
                 resetProgress();
             });
         }
@@ -1074,12 +948,12 @@
             .then(response => response.json())
             .then(data => {
                 if (data && data.version) {
-                    dom.versionInfo.textContent = '版本: ' + data.version;
+                    dom.versionInfo.textContent = data.version;
                 }
             })
             .catch(error => {
                 console.error('获取版本信息失败:', error);
-                dom.versionInfo.textContent = '版本: 未知';
+                dom.versionInfo.textContent = '版本未知';
             });
         }
 

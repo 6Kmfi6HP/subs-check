@@ -152,6 +152,14 @@ func startSubStore() error {
 	if config.GlobalConfig.SubStorePath != "" {
 		cmd.Env = append(cmd.Env, fmt.Sprintf("SUB_STORE_FRONTEND_BACKEND_PATH=%s", config.GlobalConfig.SubStorePath))
 		cmd.Env = append(cmd.Env, "SUB_STORE_BACKEND_MERGE=1")
+	} else if os.Getenv("SUB_STORE_FRONTEND_BACKEND_PATH") == "" {
+		// sub-store 2.38.0 起，Node.js 下未设置 SUB_STORE_FRONTEND_BACKEND_PATH 时脚本操作会直接报错，
+		// 而 mihomo 覆写用的就是 Script Operator。未开启 MERGE/PREFIX 时后端不处理 path，设成 / 不影响现有访问路径
+		cmd.Env = append(cmd.Env, "SUB_STORE_FRONTEND_BACKEND_PATH=/")
+	}
+	// sub-store 2.38.0 起 Node.js 下 CORS 默认只放行官方前端，自建前端/其它来源会被拒绝，保持以前的 * 行为
+	if os.Getenv("SUB_STORE_CORS_ALLOWED_ORIGINS") == "" {
+		cmd.Env = append(cmd.Env, "SUB_STORE_CORS_ALLOWED_ORIGINS=*")
 	}
 
 	// sub-store 环境变量: 后端上传文件至 gist

@@ -18,44 +18,79 @@ import (
 // includeSpeed 为 true 时追加速度标签,只在最终输出 all.yaml 时用。
 // filter 阶段应该传 false,因为此时尚未测速。
 func RenderName(r Result, includeSpeed bool) string {
+	return RenderNameParts(r, includeSpeed).String()
+}
+
+// NameParts is the structured form of a display name; String() joins it as
+// "base|speed|media...|sub_tag". Render once when both are needed: with
+// RenameNode on, every render bumps the node counter.
+type NameParts struct {
+	Base     string
+	SpeedTag string     // set when includeSpeed and the node has a speed
+	Media    []MediaTag // config.Platforms order; misses kept with an empty Tag
+	SubTag   string
+}
+
+// MediaTag is one platform's result; an empty Tag means not unlocked.
+type MediaTag struct {
+	Platform string `json:"platform"`
+	Tag      string `json:"tag"`
+}
+
+func (p NameParts) String() string {
+	var tags []string
+	if p.SpeedTag != "" {
+		tags = append(tags, p.SpeedTag)
+	}
+	for _, m := range p.Media {
+		if m.Tag != "" {
+			tags = append(tags, m.Tag)
+		}
+	}
+	if p.SubTag != "" {
+		tags = append(tags, p.SubTag)
+	}
+	if len(tags) == 0 {
+		return p.Base
+	}
+	return p.Base + "|" + strings.Join(tags, "|")
+}
+
+// RenderNameParts is the structured form of RenderName.
+func RenderNameParts(r Result, includeSpeed bool) NameParts {
+	var p NameParts
+
 	// 1. base 名字
 	// RenameNode 是"强覆盖合约":只要开了就用 Rename(Country) 的结果覆盖原名,
 	// Country 为空时 Rename 会走 ❓Other_N 的兜底。
 	// 这样能确保上游订阅里已有的 |speed|media 尾缀不会透传进来再被叠加,
 	// 否则在 IP 查询失败(免费节点常见)的节点上会出现重复标签。
-	var base string
 	if config.GlobalConfig.RenameNode {
-		base = config.GlobalConfig.NodePrefix + proxyutils.Rename(r.Country)
+		p.Base = config.GlobalConfig.NodePrefix + proxyutils.Rename(r.Country)
 	} else if r.Proxy != nil {
 		if n, ok := r.Proxy["name"].(string); ok {
-			base = strings.TrimSpace(n)
+			p.Base = strings.TrimSpace(n)
 		}
 	}
 
 	// 2. 速度标签(仅 includeSpeed 且有速度时追加,放在媒体标签之前以保持与旧版相同的展示顺序)
-	var tags []string
 	if includeSpeed && config.GlobalConfig.SpeedTestUrl != "" && r.Speed > 0 {
-		tags = append(tags, formatSpeedTag(r.Speed))
+		p.SpeedTag = formatSpeedTag(r.Speed)
 	}
 
 	// 3. 按 config.Platforms 顺序收集媒体标签
 	for _, plat := range config.GlobalConfig.Platforms {
-		if tag := mediaTagFor(plat, &r); tag != "" {
-			tags = append(tags, tag)
-		}
+		p.Media = append(p.Media, MediaTag{Platform: plat, Tag: mediaTagFor(plat, &r)})
 	}
 
 	// 4. sub_tag 追加到最后
 	if r.Proxy != nil {
 		if t, ok := r.Proxy["sub_tag"].(string); ok && t != "" {
-			tags = append(tags, t)
+			p.SubTag = t
 		}
 	}
 
-	if len(tags) == 0 {
-		return base
-	}
-	return base + "|" + strings.Join(tags, "|")
+	return p
 }
 
 // mediaTagFor 返回单个平台的展示标签,未命中返回空字符串。

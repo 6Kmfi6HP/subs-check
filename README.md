@@ -330,6 +330,13 @@ http://127.0.0.1:8299/api/file/mihomo
 | `http://127.0.0.1:8199/sub/all.yaml`   | Clash 格式节点 |由subs-check直接生成|
 | `http://127.0.0.1:8199/sub/mihomo.yaml`| 带分流规则的 Mihomo/Clash 订阅 |从上方sub-store转换下载后提供|
 | `http://127.0.0.1:8199/sub/base64.txt` | Base64 格式订阅 |从上方sub-store转换下载后提供|
+| `http://127.0.0.1:8199/export/surge` 等 | Surge / Loon / Quantumult X / Shadowrocket / Stash / Surfboard / Egern / Clash.Meta / Clash / sing-box / URI 订阅 |在 Web 控制面板生成后提供|
+
+> 检测结果与导出订阅：检测完成后，点击控制面板里的「测速」卡片进入 `/admin/results`，可以筛选、排序本轮节点（协议、服务器、SNI、TLS/UDP、流媒体解锁、速度），并按客户端生成订阅链接。
+> - 只有在控制面板（需要 API 密钥）生成过的格式才能通过 `/export/<格式>` 访问，公开访问不会触发 sub-store 转换
+> - 生成过的格式每轮检测完成后自动更新，程序重启后继续有效；在「导出订阅」中停用后链接失效
+> - 需要启用 sub-store（`sub-store-port`）
+> - 结果快照和生成的订阅保存在配置文件所在目录的 `cache/` 下（Docker 挂载的 `/app/config` 会一并持久化），文件含节点凭据，请勿公开该目录
 
 ## 🗺️ 架构图
 <details>

@@ -123,7 +123,10 @@ var mihomoOverwriteUrl string
 // 基础URL配置
 var BaseURL string
 
-func UpdateSubStore(yamlData []byte) {
+// UpdateSubStore writes this round's nodes to sub-store. A nil error means the
+// sub now holds them; a failed mihomo overwrite update doesn't count. Errors are
+// already logged.
+func UpdateSubStore(yamlData []byte) error {
 	// 调试的时候等一等node启动
 	if os.Getenv("SUB_CHECK_SKIP") != "" && config.GlobalConfig.SubStorePort != "" {
 		time.Sleep(time.Second * 1)
@@ -131,42 +134,41 @@ func UpdateSubStore(yamlData []byte) {
 	// 处理用户输入的格式
 	config.GlobalConfig.SubStorePort = formatPort(config.GlobalConfig.SubStorePort)
 	// 设置基础URL
-	BaseURL = fmt.Sprintf("http://127.0.0.1%s", config.GlobalConfig.SubStorePort)
-	if config.GlobalConfig.SubStorePath != "" {
-		BaseURL = fmt.Sprintf("%s%s", BaseURL, config.GlobalConfig.SubStorePath)
-	}
+	BaseURL = SubStoreBaseURL()
 
 	if err := checkSub(); err != nil {
 		slog.Debug(fmt.Sprintf("检查sub配置文件失败: %v, 正在创建中...", err))
 		if err := createSub(yamlData); err != nil {
 			slog.Error(fmt.Sprintf("创建sub配置文件失败: %v", err))
-			return
+			return err
 		}
 	}
 	if config.GlobalConfig.MihomoOverwriteUrl == "" {
 		slog.Error("mihomo覆写订阅url未设置")
-		return
+		return fmt.Errorf("mihomo覆写订阅url未设置")
 	}
 	if err := checkfile(); err != nil {
 		slog.Debug(fmt.Sprintf("检查mihomo配置文件失败: %v, 正在创建中...", err))
 		if err := createfile(); err != nil {
 			slog.Error(fmt.Sprintf("创建mihomo配置文件失败: %v", err))
-			return
+			return err
 		}
 		mihomoOverwriteUrl = config.GlobalConfig.MihomoOverwriteUrl
 	}
 	if err := updateSub(yamlData); err != nil {
 		slog.Error(fmt.Sprintf("更新sub配置文件失败: %v", err))
-		return
+		return err
 	}
 	if config.GlobalConfig.MihomoOverwriteUrl != mihomoOverwriteUrl {
 		if err := updatefile(); err != nil {
+			// The sub is already updated; only the overwrite file failed.
 			slog.Error(fmt.Sprintf("更新mihomo配置文件失败: %v", err))
-			return
+			return nil
 		}
 		mihomoOverwriteUrl = config.GlobalConfig.MihomoOverwriteUrl
 	}
 	slog.Info("substore更新完成")
+	return nil
 }
 func checkSub() error {
 	resp, err := http.Get(fmt.Sprintf("%s/api/sub/%s", BaseURL, SubName))
@@ -404,6 +406,16 @@ func formatPort(port string) string {
 		return ":" + parts[len(parts)-1]
 	}
 	return ":" + port
+}
+
+// SubStoreBaseURL returns the local sub-store address. Unlike BaseURL, it does
+// not depend on UpdateSubStore having run.
+func SubStoreBaseURL() string {
+	u := "http://127.0.0.1" + formatPort(config.GlobalConfig.SubStorePort)
+	if config.GlobalConfig.SubStorePath != "" {
+		u += config.GlobalConfig.SubStorePath
+	}
+	return u
 }
 
 func WarpUrl(url string) string {

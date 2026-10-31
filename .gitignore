@@ -4,6 +4,7 @@ mihomo.yaml
 test
 
 output/*
+config/cache/
 subs-check*
 mihomo-check*
 

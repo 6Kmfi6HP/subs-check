@@ -20,6 +20,7 @@ import (
 	proxyutils "github.com/beck-8/subs-check/proxy"
 	"github.com/juju/ratelimit"
 	"github.com/metacubex/mihomo/adapter"
+	_ "github.com/metacubex/mihomo/config" // init() sets dns.ParseNameServer, required by ParseProxy
 	"github.com/metacubex/mihomo/constant"
 )
 
@@ -827,6 +828,9 @@ type ProxyClient struct {
 	*http.Client
 	proxy     constant.Proxy
 	BytesRead *uint64
+
+	ctx    context.Context // done on Close, stops watchdog
+	cancel context.CancelFunc
 }
 
 func CreateClient(mapping map[string]any) *ProxyClient {
@@ -863,19 +867,62 @@ func CreateClient(mapping map[string]any) *ProxyClient {
 		DisableKeepAlives: true,
 	}
 
-	return &ProxyClient{
+	ctx, cancel := context.WithCancel(context.Background())
+	pc := &ProxyClient{
 		Client: &http.Client{
 			Timeout:   time.Duration(config.GlobalConfig.Timeout) * time.Millisecond,
 			Transport: baseTransport,
 		},
 		proxy:     proxy,
 		BytesRead: &bytesRead,
+		ctx:       ctx,
+		cancel:    cancel,
+	}
+	go pc.watchdog(mapping["name"], clientLifetime())
+	return pc
+}
+
+// clientLifetime is a hang backstop, not a request timeout:
+// 10x the largest per-request timeout, at least 10 minutes.
+func clientLifetime() time.Duration {
+	d := time.Duration(config.GlobalConfig.Timeout) * time.Millisecond
+	d = max(d, time.Duration(config.GlobalConfig.MediaCheckTimeout)*time.Second)
+	d = max(d, time.Duration(config.GlobalConfig.DownloadTimeout)*time.Second)
+	return max(10*d, 10*time.Minute)
+}
+
+// watchdog closes the proxy every second after lifetime until Close is called.
+// Some transports ignore request timeouts (e.g. mihomo gun stuck in initOnce)
+// and gun rebuilds its transport after Close, so one Close is not enough.
+func (pc *ProxyClient) watchdog(name any, lifetime time.Duration) {
+	timer := time.NewTimer(lifetime)
+	defer timer.Stop()
+	select {
+	case <-pc.ctx.Done():
+		return
+	case <-timer.C:
+	}
+
+	slog.Warn("节点检测超时仍未结束，强制关闭底层连接", "proxy", name)
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+	for {
+		pc.proxy.Close()
+		select {
+		case <-pc.ctx.Done():
+			return
+		case <-ticker.C:
+		}
 	}
 }
 
 // Close closes the proxy client and cleans up resources
 // 防止底层库有一些泄露，所以这里手动关闭
 func (pc *ProxyClient) Close() {
+	if pc.cancel != nil {
+		pc.cancel()
+	}
+
 	if pc.Client != nil {
 		pc.Client.CloseIdleConnections()
 	}

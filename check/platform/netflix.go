@@ -18,12 +18,12 @@ type NetflixResult struct {
 }
 
 // CheckNetflix 检测 Netflix 解锁状态
-// 1. 优先请求 Fast.com 的 Netflix 测速 API,一次请求即可拿到区域,比传统 title 探测更快;
-//    该接口返回 403 时说明 IP 已被 Netflix 直接封禁。
-// 2. Fast.com 未给出结论时回退到传统 title 探测:
-//    - 全解锁: 非自制剧title返回200/301，提取地区码 → NF-US
-//    - 仅自制剧: 非自制剧title返回404，自制剧title返回200 → NF
-//    - 封禁: 任一 title 返回403 → Banned
+//  1. 优先请求 Fast.com 的 Netflix 测速 API,一次请求即可拿到区域,比传统 title 探测更快;
+//     该接口返回 403 时说明 IP 已被 Netflix 直接封禁。
+//  2. Fast.com 未给出结论时回退到传统 title 探测:
+//     - 全解锁: 非自制剧title返回200/301，提取地区码 → NF-US
+//     - 仅自制剧: 非自制剧title返回404，自制剧title返回200 → NF
+//     - 封禁: 任一 title 返回403 → Banned
 func CheckNetflix(httpClient *http.Client) (*NetflixResult, error) {
 	result := &NetflixResult{}
 

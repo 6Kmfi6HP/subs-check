@@ -1,0 +1,24 @@
+{{define "topbar"}}
+<header class="topbar">
+    <div class="topbar-inner">
+        <a class="brand" href="/admin">
+            <span class="brand-mark"><i class="bi bi-speedometer2"></i></span>
+            <span class="brand-text">Subs Check</span>
+        </a>
+        <nav class="topnav" aria-label="页面导航">
+            <a class="topnav-link{{if eq .nav "admin"}} active{{end}}" href="/admin"{{if eq .nav "admin"}} aria-current="page"{{end}}>
+                <i class="bi bi-grid-1x2"></i><span>控制台</span>
+            </a>
+            <a class="topnav-link{{if eq .nav "results"}} active{{end}}" href="/admin/results"{{if eq .nav "results"}} aria-current="page"{{end}}>
+                <i class="bi bi-list-check"></i><span>检测结果</span>
+            </a>
+        </nav>
+        <div class="topbar-right">
+            <span class="version-badge" id="versionInfo" title="版本">—</span>
+            <a class="icon-btn" href="https://github.com/beck-8/subs-check" target="_blank" rel="noopener" title="项目地址：github.com/beck-8/subs-check" aria-label="GitHub 项目地址">
+                <i class="bi bi-github"></i>
+            </a>
+        </div>
+    </div>
+</header>
+{{end}}

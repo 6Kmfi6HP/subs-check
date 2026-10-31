@@ -267,6 +267,37 @@ func TestRenderName_RenameOnButEmptyCountry_UsesOtherFallback(t *testing.T) {
 	})
 }
 
+func TestRenderNameParts_MatchesRenderName(t *testing.T) {
+	withConfig(t, config.Config{
+		RenameNode:   false,
+		SpeedTestUrl: "https://speed.example.com",
+		Platforms:    []string{"openai", "netflix", "disney"},
+	}, func() {
+		r := Result{
+			Proxy:   map[string]any{"name": "🇭🇰香港01", "sub_tag": "机场A"},
+			Speed:   2048,
+			Netflix: &platform.NetflixResult{Full: true, Region: "HK"},
+		}
+		p := RenderNameParts(r, true)
+		if got, want := p.String(), RenderName(r, true); got != want {
+			t.Errorf("NameParts.String() = %q, RenderName() = %q", got, want)
+		}
+		if p.Base != "🇭🇰香港01" || p.SpeedTag != "2.0MB/s" || p.SubTag != "机场A" {
+			t.Errorf("parts = %+v", p)
+		}
+		// Misses are kept so the page can show "not unlocked".
+		want := []MediaTag{{Platform: "openai"}, {Platform: "netflix", Tag: "NF-HK"}, {Platform: "disney"}}
+		if len(p.Media) != len(want) {
+			t.Fatalf("media = %+v, want %+v", p.Media, want)
+		}
+		for i := range want {
+			if p.Media[i] != want[i] {
+				t.Errorf("media[%d] = %+v, want %+v", i, p.Media[i], want[i])
+			}
+		}
+	})
+}
+
 // 辅助函数
 func stringContains(s, substr string) bool {
 	for i := 0; i+len(substr) <= len(s); i++ {

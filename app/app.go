@@ -52,6 +52,8 @@ func (app *App) Initialize() error {
 	if err := app.initConfigPath(); err != nil {
 		return fmt.Errorf("初始化配置文件路径失败: %w", err)
 	}
+	// Results snapshot and export cache live beside the config file.
+	utils.SetCacheDir(app.configPath)
 
 	// 加载配置文件
 	if err := app.loadConfig(); err != nil {

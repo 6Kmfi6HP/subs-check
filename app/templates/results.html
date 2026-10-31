@@ -1,0 +1,1264 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>检测结果 - Subs Check</title>
+    <link href="/static/bootstrap/bootstrap.min.css" rel="stylesheet">
+    <link href="/static/bootstrap-icons/bootstrap-icons.css" rel="stylesheet">
+    <link href="/static/css/app.css" rel="stylesheet">
+    <style>
+        /* Header */
+        .page-head {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: flex-end;
+            justify-content: space-between;
+            gap: 16px;
+            margin-bottom: 16px;
+        }
+        .page-title { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.01em; }
+        .page-sub { margin-top: 2px; color: var(--text-2); font-size: 13px; }
+        .page-sub .sep { margin: 0 6px; color: var(--text-3); }
+        .page-sub .count {
+            padding: 1px 6px;
+            border-radius: 6px;
+            background-color: var(--success-soft);
+            color: var(--success-text);
+            font-weight: 700;
+        }
+
+        /* Filter toolbar */
+        .toolbar {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            padding: 12px 16px;
+            background: var(--surface);
+            border-bottom: 1px solid var(--border);
+        }
+        .toolbar-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+        .search-box {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex: 1 1 280px;
+            max-width: 420px;
+            padding: 5px 10px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text-2);
+            font-size: 0.85rem;
+            transition: border-color 0.2s ease, box-shadow 0.2s ease;
+        }
+        .search-box:focus-within { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(67, 97, 238, 0.15); }
+        .search-box input { border: 0; outline: 0; background: transparent; width: 100%; color: var(--text); }
+        .search-box input::placeholder { color: #adb5bd; }
+        .filter-select {
+            width: auto;
+            min-width: 120px;
+            font-size: 0.8rem;
+            border-radius: 8px;
+            border-color: var(--border);
+        }
+        .filter-select:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(67, 97, 238, 0.15); }
+        .reset-link { font-size: 0.78rem; padding: 0; text-decoration: none; color: var(--primary); }
+        .toolbar-count { margin-left: auto; font-size: 0.78rem; color: var(--text-2); }
+        .filter-label { flex: none; width: 28px; font-size: 0.72rem; font-weight: 600; color: var(--text-2); }
+        .chip-group { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; flex: 1; }
+        .chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 3px 10px;
+            border-radius: 8px;
+            font-size: 0.78rem;
+            font-weight: 500;
+            line-height: 1.5;
+            border: 1px solid var(--border-strong);
+            background: var(--surface);
+            color: var(--text-2);
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        .chip:hover { border-color: var(--primary); }
+        .chip.active { background: var(--primary); border-color: var(--primary); color: #fff; }
+        .chip:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+        .chip-count { opacity: 0.7; }
+
+        /* Node list; JS sets --cols from the data and viewport width */
+        .node-head,
+        .node-row {
+            display: grid;
+            grid-template-columns: var(--cols);
+            column-gap: 16px;
+            align-items: center;
+            padding-left: 16px;
+            padding-right: 16px;
+        }
+        .node-head {
+            padding-top: 8px;
+            padding-bottom: 8px;
+            background: #f8f9fb;
+            border-bottom: 1px solid var(--border);
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: var(--text-2);
+        }
+        .sort-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 0;
+            border: 0;
+            background: none;
+            font: inherit;
+            color: inherit;
+            cursor: pointer;
+        }
+        .sort-btn:hover,
+        .sort-btn.active { color: var(--primary); }
+        .node-item { border-bottom: 1px solid var(--border); }
+        .node-item:last-child { border-bottom: 0; }
+        .node-row {
+            padding-top: 9px;
+            padding-bottom: 9px;
+            cursor: pointer;
+            transition: background-color 0.15s ease;
+        }
+        .node-row:hover { background-color: #f8f9ff; }
+        .node-row:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
+        .node-item.open .node-row { background-color: #fafbfd; }
+        .cell { min-width: 0; font-size: 0.8rem; }
+        .node-name { font-weight: 600; font-size: 0.85rem; }
+        .node-sub { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 3px; }
+        .type-badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 6px;
+            font-family: var(--mono);
+            font-size: 0.72rem;
+            font-weight: 600;
+            background: #f0f2f5;
+            color: #495057;
+        }
+        .type-vless { background: #eef2ff; color: #3730a3; }
+        .type-vmess { background: #e3f6fc; color: #0e6e8c; }
+        .type-trojan { background: #fdecee; color: #a4232e; }
+        .type-ss,
+        .type-ssr { background: #d1fae5; color: #065f46; }
+        .type-hysteria2,
+        .type-hysteria { background: #fdf0e6; color: #9a4d12; }
+        .tag {
+            display: inline-block;
+            padding: 0 6px;
+            border-radius: 4px;
+            border: 1px solid var(--border);
+            background: #f0f2f5;
+            color: #495057;
+            font-size: 0.68rem;
+            line-height: 15px;
+            white-space: nowrap;
+        }
+        .tag-sub { background: var(--surface); color: var(--text-2); }
+        .media-cell { display: flex; flex-wrap: wrap; gap: 4px; }
+        .yes { color: var(--success); }
+        .no,
+        .muted { color: #ced4da; }
+        .speed-cell { display: flex; align-items: center; gap: 10px; }
+        .speed-bar { flex: 1; height: 6px; background-color: #e9ecef; border-radius: 3px; overflow: hidden; }
+        .speed-bar span { display: block; height: 100%; border-radius: 3px; background: linear-gradient(90deg, #2ec4b6, #28a745); }
+        .speed-text { min-width: 72px; text-align: right; white-space: nowrap; font-family: var(--mono); font-size: 0.8rem; font-weight: 600; }
+        .chev { display: inline-block; color: #adb5bd; transition: transform 0.2s ease; }
+        .node-item.open .chev { transform: rotate(180deg); }
+
+        /* Node detail */
+        .node-detail { padding: 2px 16px 14px; background-color: #fafbfd; }
+        .detail-card {
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+            padding: 14px 16px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+        }
+        .detail-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px 24px; }
+        .detail-key { font-size: 0.72rem; color: var(--text-2); margin-bottom: 2px; }
+        .detail-val { font-family: var(--mono); font-size: 0.8rem; word-break: break-all; }
+        .detail-title { font-size: 0.72rem; font-weight: 600; color: var(--text-2); margin-bottom: 8px; }
+        .media-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 8px; }
+        .media-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 10px;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            font-size: 0.8rem;
+        }
+        .media-item.ok { background: #f0fdf8; border-color: #a7f3d0; }
+        .media-item.ok i { color: var(--success); }
+        .media-item.no { color: var(--text-2); }
+        .media-item.no i { color: #ced4da; }
+        .media-tag { margin-left: auto; font-family: var(--mono); font-size: 0.72rem; }
+        .detail-note { display: flex; align-items: center; gap: 6px; margin-top: 8px; font-size: 0.72rem; color: var(--text-2); }
+
+        .empty-filter { padding: 48px 16px; text-align: center; font-size: 0.85rem; color: var(--text-2); }
+        .table-footer { padding: 12px 16px; text-align: center; border-top: 1px solid var(--border); }
+        .notice-card {
+            padding: 56px 24px;
+            text-align: center;
+            color: var(--text-2);
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow-sm);
+        }
+        .notice-card > i { font-size: 2rem; color: #ced4da; }
+        .notice-card h2 { font-size: 1rem; font-weight: 600; color: var(--text); margin: 12px 0 4px; }
+        .notice-card p { font-size: 0.85rem; margin-bottom: 0; }
+
+        /* Export dialog */
+        .export-dialog { max-width: 660px; }
+        .modal-content { border: 1px solid var(--border); border-radius: var(--radius); box-shadow: 0 12px 40px rgba(26, 26, 46, 0.25); }
+        .modal-header { align-items: flex-start; padding: 14px 20px; }
+        .modal-title { font-size: 1rem; font-weight: 600; }
+        .modal-sub { font-size: 0.78rem; color: var(--text-2); margin-top: 2px; }
+        .modal-body { display: flex; flex-direction: column; gap: 16px; padding: 16px 20px; }
+        .modal-body .alert { margin-bottom: 0; font-size: 0.85rem; border: none; border-radius: var(--radius); }
+        .target-group-title { font-size: 0.72rem; font-weight: 600; color: var(--text-2); margin-bottom: 8px; }
+        .target-groups { display: flex; flex-direction: column; gap: 16px; }
+        .target-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+        .target-tile {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 4px;
+            min-width: 0;
+            padding: 9px 12px;
+            text-align: left;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            background: var(--surface);
+            transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+        }
+        .target-tile:hover { border-color: #b4c0f5; transform: translateY(-1px); }
+        .target-tile.selected { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(67, 97, 238, 0.15); }
+        .target-tile:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+        .tile-label { max-width: 100%; font-size: 0.85rem; font-weight: 600; color: var(--text); }
+        .tile-label small { margin-left: 4px; font-size: 0.7rem; font-weight: 400; color: var(--text-2); }
+        .tile-status { display: flex; align-items: center; gap: 5px; font-size: 0.7rem; color: var(--text-2); }
+        .dot { flex: none; width: 6px; height: 6px; border-radius: 50%; background: #ced4da; }
+        .dot-ready { background: var(--success); }
+        .dot-outdated { background: var(--warning); }
+        .dot-failed { background: var(--danger); }
+        .dot-generating,
+        .dot-preset { background: var(--primary); }
+        .spinner-xs { width: 0.65rem; height: 0.65rem; border-width: 0.12em; }
+        .target-detail {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            padding: 14px 16px;
+            background: #f8f9fb;
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+        }
+        .target-head { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+        .target-head .name { font-size: 0.9rem; font-weight: 600; }
+        .target-head .note { font-size: 0.72rem; color: var(--text-2); }
+        .state-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            padding: 1px 8px;
+            border-radius: 20px;
+            font-size: 0.7rem;
+            font-weight: 500;
+            background: #f0f2f5;
+            color: var(--text-2);
+        }
+        .state-ready { background: #d1fae5; color: #065f46; }
+        .state-outdated { background: #fdf0e6; color: #9a4d12; }
+        .state-failed { background: #fdecee; color: #a4232e; }
+        .state-generating,
+        .state-preset { background: #eef2ff; color: #3730a3; }
+        .link-row { display: flex; align-items: stretch; gap: 8px; }
+        .link-box {
+            flex: 1;
+            min-width: 0;
+            padding: 6px 10px;
+            font-size: 0.8rem;
+            line-height: 1.5;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            user-select: all;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+        }
+        .link-row .btn { white-space: nowrap; }
+        .action-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+        .action-desc { min-width: 0; font-size: 0.75rem; color: var(--text-2); }
+        .action-buttons { display: flex; flex: none; gap: 8px; }
+        .detail-warn { font-size: 0.75rem; color: #9a4d12; }
+        .detail-error { font-size: 0.75rem; color: #a4232e; }
+        .modal-footer-note {
+            display: flex;
+            gap: 6px;
+            padding: 10px 20px;
+            font-size: 0.72rem;
+            color: var(--text-2);
+            border-top: 1px solid var(--border);
+        }
+
+        @media (max-width: 991px) {
+            .detail-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+        }
+
+        @media (max-width: 768px) {
+            .detail-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+            .toolbar-count { margin-left: 0; width: 100%; }
+            .target-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+            .action-row { flex-direction: column; align-items: flex-start; }
+        }
+
+        @media (max-width: 575px) {
+            .page-title { font-size: 19px; }
+            .node-head,
+            .node-row { column-gap: 10px; padding-left: 12px; padding-right: 12px; }
+            .speed-bar { display: none; }
+            .speed-text { min-width: 0; }
+            .search-box { max-width: none; }
+            .link-row { flex-direction: column; }
+        }
+    </style>
+</head>
+<body>
+    {{template "topbar" .}}
+
+    <main class="page">
+        <div class="page-head">
+            <div class="min-w-0">
+                <h1 class="page-title">检测结果</h1>
+                <div class="page-sub" id="summary">加载中...</div>
+            </div>
+            <button id="openExport" class="btn btn-primary" type="button">
+                <i class="bi bi-box-arrow-up-right"></i>导出订阅
+            </button>
+        </div>
+
+        <div id="notice" class="notice-card" hidden></div>
+
+        <div id="resultsCard" class="panel panel-clip" hidden>
+            <div class="toolbar" id="toolbar">
+                <div class="toolbar-row">
+                    <label class="search-box" for="searchInput">
+                        <i class="bi bi-search"></i>
+                        <input type="search" id="searchInput" placeholder="搜索名称、服务器、SNI、IP 或解锁标签" autocomplete="off">
+                    </label>
+                    <select id="countrySelect" class="form-select form-select-sm filter-select" aria-label="地区">
+                        <option value="">全部地区</option>
+                    </select>
+                    <button id="resetFilters" class="btn btn-link reset-link" type="button" hidden>清除筛选</button>
+                    <div class="toolbar-count" id="countText"></div>
+                </div>
+                <div class="toolbar-row">
+                    <span class="filter-label">协议</span>
+                    <div class="chip-group" id="typeChips"></div>
+                </div>
+                <div class="toolbar-row" id="mediaRow" hidden>
+                    <span class="filter-label">解锁</span>
+                    <div class="chip-group" id="mediaChips"></div>
+                </div>
+                <div class="toolbar-row">
+                    <span class="filter-label">特性</span>
+                    <div class="chip-group" id="featureChips"></div>
+                </div>
+            </div>
+            <div id="nodeTable"></div>
+            <div id="emptyFilter" class="empty-filter" hidden>
+                没有匹配的节点 · <a href="#" id="emptyReset">清除筛选</a>
+            </div>
+            <div id="tableFooter" class="table-footer" hidden>
+                <button id="showMore" class="btn btn-ghost btn-sm" type="button">显示更多</button>
+            </div>
+        </div>
+    </main>
+
+    <!-- Export dialog -->
+    <div class="modal fade" id="exportModal" tabindex="-1" aria-labelledby="exportTitle" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered export-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <div>
+                        <h5 class="modal-title" id="exportTitle">导出订阅</h5>
+                        <div class="modal-sub">节点来自本轮检测结果，由内置 Sub-Store 转换为各客户端格式</div>
+                    </div>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button>
+                </div>
+                <div class="modal-body" id="exportBody">
+                    <div id="exportDisabled" class="alert alert-warning" hidden>
+                        <i class="bi bi-exclamation-triangle me-1"></i>未启用 sub-store（配置中 sub-store-port 为空），无法导出订阅。
+                    </div>
+                    <div id="targetGroups" class="target-groups"></div>
+                    <div id="targetDetail" class="target-detail" hidden></div>
+                </div>
+                <div class="modal-footer-note">
+                    <i class="bi bi-lock"></i>
+                    <span>生成需要 API 密钥；生成后链接无需密钥即可访问（与 /sub/ 相同），每轮检测完成后自动更新，重启后继续有效，停用后失效。</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/bootstrap/bootstrap.bundle.min.js"></script>
+    <script>
+    (function () {
+        'use strict';
+
+        const PAGE_SIZE = 200;
+        const PLATFORM_LABELS = {
+            openai: 'OpenAI', netflix: 'Netflix', disney: 'Disney+', youtube: 'YouTube',
+            gemini: 'Gemini', claude: 'Claude', spotify: 'Spotify', tiktok: 'TikTok'
+        };
+        const TYPE_ORDER = ['vless', 'vmess', 'trojan', 'ss', 'ssr', 'hysteria2', 'hysteria', 'tuic', 'anytls', 'wireguard', 'snell', 'socks5', 'http'];
+        const DETAIL_LABELS = {
+            'cipher': '加密方式', 'flow': '流控', 'client-fingerprint': '客户端指纹', 'alpn': 'ALPN',
+            'skip-cert-verify': '跳过证书验证', 'ws-path': 'WS 路径', 'ws-host': 'WS Host',
+            'grpc-service-name': 'gRPC 服务名', 'h2-path': 'H2 路径', 'http-path': 'HTTP 路径',
+            'plugin': '插件', 'obfs': '混淆', 'protocol': '协议参数', 'up': '上行带宽', 'down': '下行带宽',
+            'ports': '端口跳跃', 'congestion-controller': '拥塞控制', 'udp-relay-mode': 'UDP 中继模式', 'version': '版本'
+        };
+        // Columns narrower than minWidth are hidden; their values move to the detail panel.
+        const COLUMNS = [
+            { key: 'name', label: '名称', width: 'minmax(0, 1.6fr)', sort: 'name' },
+            { key: 'type', label: '类型', width: '92px', sort: 'type', minWidth: 576 },
+            { key: 'server', label: '服务器', width: 'minmax(0, 1.25fr)', sort: 'server', minWidth: 992 },
+            { key: 'port', label: '端口', width: '64px', minWidth: 1200 },
+            { key: 'sni', label: 'SNI', width: 'minmax(0, 1.1fr)', minWidth: 1200 },
+            { key: 'tls', label: 'TLS', width: '40px', minWidth: 992 },
+            { key: 'udp', label: 'UDP', width: '40px', minWidth: 992 },
+            { key: 'media', label: '流媒体', width: 'minmax(0, 1.7fr)', sort: 'media', minWidth: 768, needsMedia: true },
+            { key: 'speed', label: '速度', width: '150px', narrowWidth: '76px', sort: 'speed', needsSpeed: true },
+            { key: 'chev', label: '', width: '20px' }
+        ];
+        const SORTERS = {
+            name: function (a, b) { return (a.baseName || a.name).localeCompare(b.baseName || b.name, 'zh-CN', { numeric: true }); },
+            type: function (a, b) { return a.type.localeCompare(b.type); },
+            server: function (a, b) { return a.server.localeCompare(b.server, undefined, { numeric: true }); },
+            media: function (a, b) { return a._unlocked.size - b._unlocked.size; },
+            speed: function (a, b) { return a.speed - b.speed; }
+        };
+
+        const dom = {
+            summary: document.getElementById('summary'),
+            notice: document.getElementById('notice'),
+            card: document.getElementById('resultsCard'),
+            toolbar: document.getElementById('toolbar'),
+            search: document.getElementById('searchInput'),
+            country: document.getElementById('countrySelect'),
+            resetFilters: document.getElementById('resetFilters'),
+            countText: document.getElementById('countText'),
+            typeChips: document.getElementById('typeChips'),
+            mediaRow: document.getElementById('mediaRow'),
+            mediaChips: document.getElementById('mediaChips'),
+            featureChips: document.getElementById('featureChips'),
+            table: document.getElementById('nodeTable'),
+            emptyFilter: document.getElementById('emptyFilter'),
+            emptyReset: document.getElementById('emptyReset'),
+            tableFooter: document.getElementById('tableFooter'),
+            showMore: document.getElementById('showMore'),
+            openExport: document.getElementById('openExport'),
+            exportModal: document.getElementById('exportModal'),
+            exportBody: document.getElementById('exportBody'),
+            exportDisabled: document.getElementById('exportDisabled'),
+            targetGroups: document.getElementById('targetGroups'),
+            targetDetail: document.getElementById('targetDetail')
+        };
+
+        // Filtering and sorting run on loaded data only; no extra requests.
+        const state = {
+            data: null,
+            platforms: [],
+            query: '',
+            types: new Set(),
+            media: new Set(),
+            country: '',
+            tls: false,
+            udp: false,
+            sortKey: '',
+            sortDir: 'desc',
+            expanded: new Set(),
+            limit: PAGE_SIZE,
+            view: [],
+            cols: [],
+            colSig: ''
+        };
+
+        function esc(value) {
+            return String(value == null ? '' : value)
+                .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+        }
+
+        function getApiKey() {
+            try { return localStorage.getItem('apiKey') || ''; } catch (e) { return ''; }
+        }
+
+        function api(path, options) {
+            options = options || {};
+            const headers = Object.assign({}, options.headers || {}, { 'X-API-Key': getApiKey() });
+            return fetch(path, Object.assign({}, options, { headers: headers })).then(function (resp) {
+                return resp.json().catch(function () { return {}; }).then(function (body) {
+                    if (resp.status === 401) {
+                        const err = new Error('API密钥无效或未提供');
+                        err.unauthorized = true;
+                        throw err;
+                    }
+                    if (!resp.ok) {
+                        const err = new Error(body.error || ('请求失败 (HTTP ' + resp.status + ')'));
+                        err.body = body;
+                        throw err;
+                    }
+                    return body;
+                });
+            });
+        }
+
+        function pad2(n) { return n < 10 ? '0' + n : String(n); }
+
+        function formatDateTime(d) {
+            return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()) + ' ' +
+                pad2(d.getHours()) + ':' + pad2(d.getMinutes()) + ':' + pad2(d.getSeconds());
+        }
+
+        function relTime(iso) {
+            const diff = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000);
+            if (diff < 60) return '刚刚';
+            if (diff < 3600) return Math.floor(diff / 60) + ' 分钟前';
+            if (diff < 86400) return Math.floor(diff / 3600) + ' 小时前';
+            return formatDateTime(new Date(iso));
+        }
+
+        function formatSize(bytes) {
+            if (!bytes) return '0 B';
+            if (bytes < 1024) return bytes + ' B';
+            if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+            return (bytes / 1024 / 1024).toFixed(1) + ' MB';
+        }
+
+        function formatSpeed(kb) {
+            if (!kb) return '—';
+            if (kb < 1024) return kb + ' KB/s';
+            return (kb / 1024).toFixed(1) + ' MB/s';
+        }
+
+        function typeClass(type) {
+            return 'type-' + String(type).toLowerCase().replace(/[^a-z0-9]/g, '');
+        }
+
+        function platformLabel(p) {
+            return PLATFORM_LABELS[p] || p;
+        }
+
+        function showNotice(icon, title, text) {
+            dom.notice.innerHTML = '<i class="bi ' + icon + '"></i><h2>' + esc(title) + '</h2><p>' + text + '</p>';
+            dom.notice.hidden = false;
+            dom.card.hidden = true;
+        }
+
+        // ---------------- Node list ----------------
+
+        function load() {
+            if (!getApiKey()) {
+                dom.summary.textContent = '需要 API 密钥';
+                showNotice('bi-key', '需要 API 密钥', '请先在<a href="/admin">控制台</a>输入并保存 API 密钥。');
+                return;
+            }
+            api('/api/results').then(setData).catch(function (err) {
+                dom.summary.textContent = '加载失败';
+                if (err.unauthorized) {
+                    showNotice('bi-key', 'API 密钥无效', '请回到<a href="/admin">控制台</a>重新输入 API 密钥。');
+                } else {
+                    showNotice('bi-exclamation-triangle', '加载检测结果失败', esc(err.message));
+                }
+            });
+        }
+
+        function setData(data) {
+            const nodes = data.nodes || [];
+            if (!data.checkedAt) {
+                dom.summary.textContent = '暂无检测结果';
+                showNotice('bi-inbox', '暂无检测结果', '完成一轮检测后，可以在这里查看节点列表。');
+                return;
+            }
+            dom.summary.innerHTML = '完成于 ' + esc(formatDateTime(new Date(data.checkedAt))) +
+                '<span class="sep">·</span>共 <span class="count">' + nodes.length + '</span> 个节点';
+            if (!nodes.length) {
+                showNotice('bi-inbox', '本轮没有可用节点', '全部节点都未通过检测或被过滤。');
+                return;
+            }
+
+            const platforms = [];
+            nodes.forEach(function (n, i) {
+                n._i = i;
+                n._unlocked = new Set();
+                n._tags = [];
+                (n.media || []).forEach(function (m) {
+                    if (platforms.indexOf(m.platform) === -1) platforms.push(m.platform);
+                    if (m.tag) {
+                        n._unlocked.add(m.platform);
+                        n._tags.push(m.tag);
+                    }
+                });
+                n._search = [n.name, n.server, n.sni, n.ip, n.country, n.type, n.subTag]
+                    .concat(n._tags).join(' ').toLowerCase();
+            });
+
+            state.data = { checkedAt: data.checkedAt, speedTest: !!data.speedTest, mediaCheck: !!data.mediaCheck, nodes: nodes };
+            state.platforms = platforms;
+            state.sortKey = state.data.speedTest ? 'speed' : '';
+            state.sortDir = 'desc';
+
+            buildFilters();
+            dom.notice.hidden = true;
+            dom.card.hidden = false;
+            refresh();
+        }
+
+        function buildFilters() {
+            const nodes = state.data.nodes;
+
+            const typeCounts = {};
+            const countryCounts = {};
+            let tlsCount = 0;
+            let udpCount = 0;
+            nodes.forEach(function (n) {
+                typeCounts[n.type] = (typeCounts[n.type] || 0) + 1;
+                const c = n.country || '-';
+                countryCounts[c] = (countryCounts[c] || 0) + 1;
+                if (n.tls) tlsCount++;
+                if (n.udp) udpCount++;
+            });
+
+            const types = Object.keys(typeCounts).sort(function (a, b) {
+                const ia = TYPE_ORDER.indexOf(a) === -1 ? 99 : TYPE_ORDER.indexOf(a);
+                const ib = TYPE_ORDER.indexOf(b) === -1 ? 99 : TYPE_ORDER.indexOf(b);
+                return ia - ib || a.localeCompare(b);
+            });
+            dom.typeChips.innerHTML = types.map(function (t) {
+                return chip('type', t, t, typeCounts[t]);
+            }).join('');
+
+            const mediaVisible = state.data.mediaCheck && state.platforms.length > 0;
+            dom.mediaRow.hidden = !mediaVisible;
+            if (mediaVisible) {
+                dom.mediaChips.innerHTML = state.platforms.map(function (p) {
+                    const count = nodes.filter(function (n) { return n._unlocked.has(p); }).length;
+                    return chip('media', p, platformLabel(p), count);
+                }).join('');
+            }
+
+            dom.featureChips.innerHTML = chip('feature', 'tls', 'TLS', tlsCount) + chip('feature', 'udp', 'UDP', udpCount);
+
+            const countries = Object.keys(countryCounts).sort(function (a, b) {
+                return countryCounts[b] - countryCounts[a] || a.localeCompare(b);
+            });
+            dom.country.innerHTML = '<option value="">全部地区</option>' + countries.map(function (c) {
+                return '<option value="' + esc(c) + '">' + esc(c === '-' ? '未知' : c) + '（' + countryCounts[c] + '）</option>';
+            }).join('');
+        }
+
+        function chip(kind, value, label, count) {
+            return '<button type="button" class="chip" data-kind="' + kind + '" data-value="' + esc(value) +
+                '" aria-pressed="false">' + esc(label) + '<span class="chip-count">' + count + '</span></button>';
+        }
+
+        function syncChips() {
+            dom.toolbar.querySelectorAll('.chip').forEach(function (el) {
+                const kind = el.getAttribute('data-kind');
+                const value = el.getAttribute('data-value');
+                let active = false;
+                if (kind === 'type') active = state.types.has(value);
+                else if (kind === 'media') active = state.media.has(value);
+                else if (kind === 'feature') active = !!state[value];
+                el.classList.toggle('active', active);
+                el.setAttribute('aria-pressed', String(active));
+            });
+        }
+
+        function hasFilters() {
+            return !!(state.query || state.types.size || state.media.size || state.country || state.tls || state.udp);
+        }
+
+        function applyFilters() {
+            const q = state.query.trim().toLowerCase();
+            let list = state.data.nodes.filter(function (n) {
+                if (state.types.size && !state.types.has(n.type)) return false;
+                if (state.country && (n.country || '-') !== state.country) return false;
+                if (state.tls && !n.tls) return false;
+                if (state.udp && !n.udp) return false;
+                for (const p of state.media) {
+                    if (!n._unlocked.has(p)) return false;
+                }
+                return !q || n._search.indexOf(q) !== -1;
+            });
+            const sorter = SORTERS[state.sortKey];
+            if (sorter) {
+                const dir = state.sortDir === 'asc' ? 1 : -1;
+                list = list.slice().sort(function (a, b) {
+                    return sorter(a, b) * dir || a._i - b._i;
+                });
+            }
+            state.view = list;
+        }
+
+        function visibleColumns() {
+            const width = window.innerWidth;
+            return COLUMNS.filter(function (c) {
+                if (c.needsMedia && !state.data.mediaCheck) return false;
+                if (c.needsSpeed && !state.data.speedTest) return false;
+                return !c.minWidth || width >= c.minWidth;
+            });
+        }
+
+        function columnSignature() {
+            return visibleColumns().map(function (c) { return c.key; }).join(',') + (window.innerWidth < 576 ? ':narrow' : '');
+        }
+
+        function refresh() {
+            applyFilters();
+            render();
+        }
+
+        function render() {
+            const narrow = window.innerWidth < 576;
+            state.cols = visibleColumns();
+            state.colSig = columnSignature();
+            dom.table.style.setProperty('--cols', state.cols.map(function (c) {
+                return narrow && c.narrowWidth ? c.narrowWidth : c.width;
+            }).join(' '));
+
+            const maxSpeed = state.data.nodes.reduce(function (m, n) { return Math.max(m, n.speed || 0); }, 0);
+            const rows = state.view.slice(0, state.limit);
+            dom.table.innerHTML = renderHead() + rows.map(function (n) { return renderItem(n, maxSpeed); }).join('');
+
+            const total = state.data.nodes.length;
+            const remaining = state.view.length - rows.length;
+            dom.emptyFilter.hidden = state.view.length > 0;
+            dom.tableFooter.hidden = remaining <= 0;
+            dom.showMore.textContent = '显示更多（还有 ' + remaining + ' 个）';
+            dom.countText.textContent = hasFilters() ? '匹配 ' + state.view.length + ' / ' + total + ' 个节点' : '';
+            dom.resetFilters.hidden = !hasFilters();
+            syncChips();
+        }
+
+        function renderHead() {
+            return '<div class="node-head">' + state.cols.map(function (c) {
+                if (!c.sort) return '<div>' + esc(c.label) + '</div>';
+                const active = state.sortKey === c.sort;
+                const icon = active ? '<i class="bi bi-arrow-' + (state.sortDir === 'asc' ? 'up' : 'down') + '"></i>' : '';
+                return '<div><button type="button" class="sort-btn' + (active ? ' active' : '') + '" data-sort="' + c.sort + '">' +
+                    esc(c.label) + icon + '</button></div>';
+            }).join('') + '</div>';
+        }
+
+        function check(value, title) {
+            return value
+                ? '<i class="bi bi-check-lg yes"' + (title ? ' title="' + esc(title) + '"' : '') + '></i>'
+                : '<i class="bi bi-dash-lg no"></i>';
+        }
+
+        function renderItem(n, maxSpeed) {
+            const open = state.expanded.has(n._i);
+            const shown = {};
+            state.cols.forEach(function (c) { shown[c.key] = true; });
+
+            let html = '<div class="node-item' + (open ? ' open' : '') + '" data-i="' + n._i + '">' +
+                '<div class="node-row" role="button" tabindex="0" aria-expanded="' + open + '">';
+            state.cols.forEach(function (c) {
+                switch (c.key) {
+                    case 'name': {
+                        const extras = [];
+                        if (!shown.type) extras.push('<span class="type-badge ' + typeClass(n.type) + '">' + esc(n.type) + '</span>');
+                        if (!shown.media) n._tags.forEach(function (t) { extras.push('<span class="tag">' + esc(t) + '</span>'); });
+                        if (n.subTag) extras.push('<span class="tag tag-sub">' + esc(n.subTag) + '</span>');
+                        html += '<div class="cell"><div class="node-name ellipsis" title="' + esc(n.name) + '">' +
+                            esc(n.baseName || n.name) + '</div>' +
+                            (extras.length ? '<div class="node-sub">' + extras.join('') + '</div>' : '') + '</div>';
+                        break;
+                    }
+                    case 'type':
+                        html += '<div class="cell"><span class="type-badge ' + typeClass(n.type) + '">' + esc(n.type) + '</span></div>';
+                        break;
+                    case 'server':
+                        html += '<div class="cell mono ellipsis" title="' + esc(n.server) + '">' + esc(n.server) + '</div>';
+                        break;
+                    case 'port':
+                        html += '<div class="cell mono">' + esc(n.port) + '</div>';
+                        break;
+                    case 'sni':
+                        html += n.sni
+                            ? '<div class="cell mono ellipsis" title="' + esc(n.sni) + '">' + esc(n.sni) + '</div>'
+                            : '<div class="cell muted">—</div>';
+                        break;
+                    case 'tls':
+                        html += '<div class="cell">' + check(n.tls, n.reality ? 'Reality' : '') + '</div>';
+                        break;
+                    case 'udp':
+                        html += '<div class="cell">' + check(n.udp) + '</div>';
+                        break;
+                    case 'media':
+                        html += '<div class="cell media-cell">' + (n._tags.length
+                            ? n._tags.map(function (t) { return '<span class="tag">' + esc(t) + '</span>'; }).join('')
+                            : '<span class="muted">—</span>') + '</div>';
+                        break;
+                    case 'speed': {
+                        const pct = maxSpeed > 0 && n.speed ? Math.max(4, Math.round(n.speed / maxSpeed * 100)) : 0;
+                        html += '<div class="cell speed-cell"><div class="speed-bar"><span style="width: ' + pct + '%"></span></div>' +
+                            '<span class="speed-text">' + formatSpeed(n.speed) + '</span></div>';
+                        break;
+                    }
+                    case 'chev':
+                        html += '<div class="cell"><i class="bi bi-chevron-down chev"></i></div>';
+                        break;
+                }
+            });
+            html += '</div>';
+            if (open) html += renderDetail(n, shown);
+            return html + '</div>';
+        }
+
+        function renderDetail(n, shown) {
+            const fields = [['完整名称', n.name]];
+            if (!shown.type) fields.push(['类型', n.type]);
+            if (!shown.server) fields.push(['服务器', n.server]);
+            if (!shown.port) fields.push(['端口', n.port]);
+            if (!shown.sni) fields.push(['SNI', n.sni || '—']);
+            if (!shown.tls) fields.push(['TLS', n.tls ? '是' : '否']);
+            if (!shown.udp) fields.push(['UDP', n.udp ? '是' : '否']);
+            fields.push(['传输', n.network + (n.reality ? ' · Reality' : '')]);
+            if (n.ip) fields.push(['出口 IP', n.ip]);
+            if (n.country) fields.push(['地区', n.country]);
+            if (n.ipRisk) fields.push(['IP 风险', n.ipRisk]);
+            if (n.subTag) fields.push(['订阅标签', n.subTag]);
+            (n.details || []).forEach(function (d) {
+                let v = d.v;
+                if (d.k === 'skip-cert-verify') v = v === 'true' ? '是' : '否';
+                fields.push([DETAIL_LABELS[d.k] || d.k, v]);
+            });
+
+            let html = '<div class="node-detail"><div class="detail-card"><div class="detail-grid">' +
+                fields.map(function (f) {
+                    return '<div class="min-w-0"><div class="detail-key">' + esc(f[0]) + '</div><div class="detail-val">' + esc(f[1]) + '</div></div>';
+                }).join('') + '</div>';
+
+            if (state.data.mediaCheck && n.media && n.media.length) {
+                html += '<div><div class="detail-title">流媒体解锁</div><div class="media-grid">' +
+                    n.media.map(function (m) {
+                        return m.tag
+                            ? '<div class="media-item ok"><i class="bi bi-check-circle-fill"></i><span>' + esc(platformLabel(m.platform)) +
+                                '</span><span class="media-tag">' + esc(m.tag) + '</span></div>'
+                            : '<div class="media-item no"><i class="bi bi-dash-circle"></i><span>' + esc(platformLabel(m.platform)) +
+                                '</span><span class="media-tag">未解锁</span></div>';
+                    }).join('') + '</div></div>';
+            }
+            html += '</div><div class="detail-note"><i class="bi bi-lock"></i>密码、UUID 等凭据不在此页展示</div></div>';
+            return html;
+        }
+
+        function toggleItem(item) {
+            const i = Number(item.getAttribute('data-i'));
+            if (state.expanded.has(i)) state.expanded.delete(i);
+            else state.expanded.add(i);
+            const maxSpeed = state.data.nodes.reduce(function (m, n) { return Math.max(m, n.speed || 0); }, 0);
+            const holder = document.createElement('div');
+            holder.innerHTML = renderItem(state.data.nodes[i], maxSpeed);
+            const next = holder.firstElementChild;
+            item.replaceWith(next);
+            next.querySelector('.node-row').focus({ preventScroll: true });
+        }
+
+        function resetFilters() {
+            state.query = '';
+            state.types.clear();
+            state.media.clear();
+            state.country = '';
+            state.tls = false;
+            state.udp = false;
+            state.limit = PAGE_SIZE;
+            dom.search.value = '';
+            dom.country.value = '';
+            refresh();
+        }
+
+        let searchTimer = null;
+        dom.search.addEventListener('input', function () {
+            clearTimeout(searchTimer);
+            searchTimer = setTimeout(function () {
+                state.query = dom.search.value;
+                state.limit = PAGE_SIZE;
+                refresh();
+            }, 120);
+        });
+
+        dom.country.addEventListener('change', function () {
+            state.country = dom.country.value;
+            state.limit = PAGE_SIZE;
+            refresh();
+        });
+
+        dom.toolbar.addEventListener('click', function (e) {
+            const el = e.target.closest('.chip');
+            if (!el) return;
+            const kind = el.getAttribute('data-kind');
+            const value = el.getAttribute('data-value');
+            if (kind === 'type' || kind === 'media') {
+                const set = kind === 'type' ? state.types : state.media;
+                if (set.has(value)) set.delete(value);
+                else set.add(value);
+            } else if (kind === 'feature') {
+                state[value] = !state[value];
+            }
+            state.limit = PAGE_SIZE;
+            refresh();
+        });
+
+        dom.resetFilters.addEventListener('click', resetFilters);
+        dom.emptyReset.addEventListener('click', function (e) {
+            e.preventDefault();
+            resetFilters();
+        });
+
+        dom.showMore.addEventListener('click', function () {
+            state.limit += PAGE_SIZE;
+            render();
+        });
+
+        dom.table.addEventListener('click', function (e) {
+            const sortBtn = e.target.closest('.sort-btn');
+            if (sortBtn) {
+                const key = sortBtn.getAttribute('data-sort');
+                if (state.sortKey === key) {
+                    state.sortDir = state.sortDir === 'asc' ? 'desc' : 'asc';
+                } else {
+                    state.sortKey = key;
+                    state.sortDir = key === 'speed' || key === 'media' ? 'desc' : 'asc';
+                }
+                refresh();
+                return;
+            }
+            const row = e.target.closest('.node-row');
+            if (row) toggleItem(row.parentElement);
+        });
+
+        dom.table.addEventListener('keydown', function (e) {
+            if (e.key !== 'Enter' && e.key !== ' ') return;
+            const row = e.target.closest('.node-row');
+            if (!row) return;
+            e.preventDefault();
+            toggleItem(row.parentElement);
+        });
+
+        let resizeFrame = 0;
+        window.addEventListener('resize', function () {
+            if (!state.data || resizeFrame) return;
+            resizeFrame = requestAnimationFrame(function () {
+                resizeFrame = 0;
+                if (columnSignature() !== state.colSig) render();
+            });
+        });
+
+        // ---------------- Export ----------------
+
+        const GROUPS = [
+            { key: 'client', name: '代理客户端' },
+            { key: 'core', name: '内核与通用格式' }
+        ];
+        const STATE_META = {
+            none: '未生成',
+            ready: '已生成',
+            outdated: '待更新',
+            generating: '生成中',
+            failed: '生成失败',
+            preset: '每轮预生成'
+        };
+
+        const exp = {
+            modal: null,
+            enabled: true,
+            targets: [],
+            selected: 'surge',
+            busy: {},
+            copied: '',
+            copiedTimer: null,
+            message: '',
+            pollTimer: null,
+            tickTimer: null,
+            open: false,
+            ticks: 0,
+            signature: ''
+        };
+
+        function findTarget(id) {
+            for (let i = 0; i < exp.targets.length; i++) {
+                if (exp.targets[i].id === id) return exp.targets[i];
+            }
+            return null;
+        }
+
+        function stampTarget(t) {
+            t._receivedAt = Date.now();
+            return t;
+        }
+
+        function cooldownLeft(t) {
+            if (!t.cooldown) return 0;
+            return Math.max(0, t.cooldown - Math.floor((Date.now() - t._receivedAt) / 1000));
+        }
+
+        function loadExport() {
+            return api('/api/export').then(function (body) {
+                const signature = JSON.stringify(body);
+                exp.enabled = !!body.enabled;
+                exp.targets = (body.targets || []).map(stampTarget);
+                if (signature !== exp.signature) {
+                    exp.signature = signature;
+                    renderExport();
+                }
+            }).catch(function (err) {
+                exp.message = err.message;
+                exp.signature = '';
+                renderExport();
+            });
+        }
+
+        function renderExport() {
+            dom.exportDisabled.hidden = exp.enabled;
+            dom.targetGroups.innerHTML = GROUPS.map(function (g) {
+                const tiles = exp.targets.filter(function (t) { return t.group === g.key; }).map(function (t) {
+                    const busy = t.state === 'generating' || exp.busy[t.id] === 'generate';
+                    const indicator = busy
+                        ? '<span class="spinner-border spinner-xs text-primary" role="status" aria-hidden="true"></span>'
+                        : '<span class="dot dot-' + esc(t.state) + '"></span>';
+                    const label = t.preset && t.state === 'none' ? '尚未生成' : (busy ? '生成中' : STATE_META[t.state] || t.state);
+                    return '<button type="button" class="target-tile' + (t.id === exp.selected ? ' selected' : '') +
+                        '" data-target="' + esc(t.id) + '"><span class="tile-label ellipsis">' + esc(t.label) +
+                        (t.note ? '<small>' + esc(t.note) + '</small>' : '') + '</span>' +
+                        '<span class="tile-status">' + indicator + esc(label) + '</span></button>';
+                }).join('');
+                return tiles ? '<div><div class="target-group-title">' + esc(g.name) + '</div><div class="target-grid">' + tiles + '</div></div>' : '';
+            }).join('');
+
+            const t = findTarget(exp.selected);
+            dom.targetDetail.hidden = !t;
+            if (t) dom.targetDetail.innerHTML = renderTargetDetail(t);
+        }
+
+        function renderTargetDetail(t) {
+            const url = window.location.origin + t.path;
+            const busy = t.state === 'generating' || exp.busy[t.id] === 'generate';
+            const pending = !!exp.busy[t.id];
+            const hasFile = t.state === 'preset' || !!t.generatedAt;
+            const cooldown = cooldownLeft(t);
+            const stateKey = busy ? 'generating' : t.state;
+            const stateLabel = t.preset && t.state === 'none' ? '尚未生成' : STATE_META[stateKey] || stateKey;
+
+            let desc = '';
+            if (busy) {
+                desc = '正在请求内置 Sub-Store 转换，可以关闭弹窗，完成后链接自动生效';
+            } else if (t.state === 'none') {
+                desc = t.preset
+                    ? '每轮检测完成时自动写入 ' + t.path + '（需要启用 sub-store）'
+                    : '尚未生成。生成后这个链接才能访问，之后每轮检测完成自动更新，直到停用';
+            } else if (t.state === 'ready') {
+                desc = relTime(t.generatedAt) + '生成 · ' + formatSize(t.size) + ' · 每轮检测完成后自动更新';
+            } else if (t.state === 'outdated') {
+                desc = relTime(t.generatedAt) + '生成 · 内容来自上一轮检测，本轮检测完成后自动更新';
+            } else if (t.state === 'failed') {
+                desc = '生成失败：' + t.error + (t.generatedAt ? ' · 链接暂时提供' + relTime(t.generatedAt) + '生成的内容' : '');
+            } else if (t.state === 'preset') {
+                desc = '每轮检测完成时写入 ' + t.path + ' · ' + relTime(t.generatedAt) + '更新 · ' + formatSize(t.size);
+            }
+
+            let primary;
+            if (!hasFile && !t.preset) {
+                primary = '<button type="button" class="btn btn-primary" data-action="generate"' + (busy || pending || !exp.enabled ? ' disabled' : '') + '>' +
+                    (busy ? '<span class="spinner-border spinner-xs me-1" aria-hidden="true"></span>生成中' : '<i class="bi bi-magic me-1"></i>生成链接') +
+                    '</button>';
+            } else {
+                const copied = exp.copied === t.id + ':link';
+                primary = '<button type="button" class="btn ' + (copied ? 'btn-success' : 'btn-primary') + '" data-action="copy-link"' +
+                    (hasFile ? '' : ' disabled') + '>' +
+                    (copied ? '<i class="bi bi-check-lg me-1"></i>已复制' : '<i class="bi bi-copy me-1"></i>复制链接') + '</button>';
+            }
+
+            const buttons = [];
+            if (hasFile) {
+                const copiedContent = exp.copied === t.id + ':content';
+                buttons.push('<button type="button" class="btn btn-outline-secondary btn-sm" data-action="copy-content">' +
+                    (copiedContent ? '已复制内容' : '复制内容') + '</button>');
+            }
+            if (hasFile && !t.preset) {
+                const disabled = busy || pending || cooldown > 0 || !exp.enabled;
+                const label = t.state === 'failed' ? '重试' : '重新生成';
+                buttons.push('<button type="button" class="btn btn-outline-secondary btn-sm" data-action="generate"' + (disabled ? ' disabled' : '') + '>' +
+                    '<i class="bi bi-arrow-clockwise me-1"></i>' + label + (cooldown > 0 ? '（' + cooldown + ' 秒）' : '') + '</button>');
+            }
+            if (t.enabled && !t.preset) {
+                buttons.push('<button type="button" class="btn btn-outline-danger btn-sm" data-action="disable"' + (pending ? ' disabled' : '') + '>停用</button>');
+            }
+
+            return '<div class="target-head"><span class="name">' + esc(t.label) + '</span>' +
+                (t.note ? '<span class="note">' + esc(t.note) + '</span>' : '') +
+                '<span class="state-pill state-' + esc(stateKey) + '">' + esc(stateLabel) + '</span></div>' +
+                '<div class="link-row"><div class="link-box mono" title="' + esc(url) + '">' + esc(url) + '</div>' + primary + '</div>' +
+                (t.id === 'clash' ? '<div class="detail-warn">Clash 原版内核不支持 VLESS、Hysteria2、TUIC 等协议，这些节点会被跳过</div>' : '') +
+                (exp.message ? '<div class="detail-error">' + esc(exp.message) + '</div>' : '') +
+                '<div class="action-row"><div class="action-desc">' + esc(desc) + '</div>' +
+                (buttons.length ? '<div class="action-buttons">' + buttons.join('') + '</div>' : '') + '</div>';
+        }
+
+        // Plain-http LAN origins have no navigator.clipboard; fall back to execCommand.
+        function copyText(text) {
+            if (navigator.clipboard && window.isSecureContext) {
+                return navigator.clipboard.writeText(text);
+            }
+            return new Promise(function (resolve, reject) {
+                const ta = document.createElement('textarea');
+                ta.value = text;
+                ta.setAttribute('readonly', '');
+                ta.style.position = 'fixed';
+                ta.style.top = '-1000px';
+                // Keep it inside the modal, or Bootstrap's focus trap steals focus and copies nothing.
+                (document.querySelector('.modal.show .modal-content') || document.body).appendChild(ta);
+                ta.select();
+                try {
+                    if (document.execCommand('copy')) resolve();
+                    else reject(new Error('浏览器阻止了复制，请手动复制'));
+                } catch (e) {
+                    reject(e);
+                } finally {
+                    ta.remove();
+                }
+            });
+        }
+
+        function markCopied(key) {
+            exp.copied = key;
+            exp.message = '';
+            clearTimeout(exp.copiedTimer);
+            exp.copiedTimer = setTimeout(function () {
+                exp.copied = '';
+                renderExport();
+            }, 1600);
+            renderExport();
+        }
+
+        // POST starts a background conversion; DELETE disables the target.
+        function mutate(t, method) {
+            exp.busy[t.id] = method === 'POST' ? 'generate' : 'disable';
+            exp.message = '';
+            renderExport();
+            api('/api/export/' + encodeURIComponent(t.id), { method: method }).then(function (status) {
+                replaceTarget(status);
+            }).catch(function (err) {
+                if (err.body && err.body.status) replaceTarget(err.body.status);
+                exp.message = err.message;
+            }).finally(function () {
+                delete exp.busy[t.id];
+                exp.signature = '';
+                renderExport();
+                schedulePoll();
+            });
+        }
+
+        function replaceTarget(status) {
+            stampTarget(status);
+            exp.targets = exp.targets.map(function (t) { return t.id === status.id ? status : t; });
+        }
+
+        dom.exportBody.addEventListener('click', function (e) {
+            const tile = e.target.closest('.target-tile');
+            if (tile) {
+                exp.selected = tile.getAttribute('data-target');
+                exp.message = '';
+                renderExport();
+                return;
+            }
+            const btn = e.target.closest('[data-action]');
+            const t = findTarget(exp.selected);
+            if (!btn || !t) return;
+            const action = btn.getAttribute('data-action');
+            const url = window.location.origin + t.path;
+            if (action === 'generate') {
+                mutate(t, 'POST');
+            } else if (action === 'disable') {
+                if (window.confirm('停用后 ' + t.label + ' 的订阅链接将无法访问，也不再自动更新。确定停用吗？')) mutate(t, 'DELETE');
+            } else if (action === 'copy-link') {
+                copyText(url).then(function () { markCopied(t.id + ':link'); }).catch(function (err) {
+                    exp.message = err.message;
+                    renderExport();
+                });
+            } else if (action === 'copy-content') {
+                fetch(t.path, { cache: 'no-store' }).then(function (resp) {
+                    return resp.text().then(function (text) {
+                        if (!resp.ok) throw new Error(text || ('HTTP ' + resp.status));
+                        return text;
+                    });
+                }).then(copyText).then(function () {
+                    markCopied(t.id + ':content');
+                }).catch(function (err) {
+                    exp.message = '复制内容失败：' + err.message;
+                    renderExport();
+                });
+            }
+        });
+
+        dom.openExport.addEventListener('click', function () {
+            if (!exp.modal) exp.modal = new bootstrap.Modal(dom.exportModal);
+            exp.message = '';
+            exp.signature = '';
+            exp.modal.show();
+            loadExport();
+        });
+
+        // Poll while open to pick up background conversions; faster while one is running.
+        function schedulePoll() {
+            clearTimeout(exp.pollTimer);
+            if (!exp.open) return;
+            const running = exp.targets.some(function (t) { return t.state === 'generating'; });
+            exp.pollTimer = setTimeout(function () {
+                loadExport().then(schedulePoll);
+            }, running ? 1000 : 3000);
+        }
+
+        dom.exportModal.addEventListener('shown.bs.modal', function () {
+            exp.open = true;
+            exp.ticks = 0;
+            schedulePoll();
+            exp.tickTimer = setInterval(function () {
+                exp.ticks++;
+                // Re-render for cooldown countdowns, and every 30s to keep relative times fresh.
+                if (exp.ticks % 30 === 0 || exp.targets.some(function (t) { return cooldownLeft(t) > 0; })) renderExport();
+            }, 1000);
+        });
+
+        dom.exportModal.addEventListener('hidden.bs.modal', function () {
+            exp.open = false;
+            clearTimeout(exp.pollTimer);
+            clearInterval(exp.tickTimer);
+        });
+
+        api('/api/version').then(function (data) {
+            if (data && data.version) document.getElementById('versionInfo').textContent = data.version;
+        }).catch(function () {});
+
+        load();
+    })();
+    </script>
+</body>
+</html>
