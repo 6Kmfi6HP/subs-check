@@ -66,6 +66,7 @@ type Config struct {
 	APIKey               string    `yaml:"api-key"`
 	GithubProxy          string    `yaml:"github-proxy"`
 	Proxy                string    `yaml:"proxy"`
+	Socks5Proxy          string    `yaml:"socks5-proxy"`
 	CallbackScript       string    `yaml:"callback-script"`
 	Filter               []string  `yaml:"filter"`
 	KeepDays             int       `yaml:"keep-days"`

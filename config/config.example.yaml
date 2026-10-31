@@ -212,6 +212,9 @@ sub-urls-concurrent: 20
 # 获取订阅时使用的UA；如果设置random将会使用随机UA获取订阅
 # sub-urls-get-ua: "random"
 sub-urls-get-ua: "clash.meta (https://github.com/beck-8/subs-check)"
+# SOCKS5 代理设置，仅用于获取订阅链接；支持认证和无认证地址
+# socks5-proxy: "socks5://username:password@192.168.1.1:7890"
+socks5-proxy: ""
 # Github Proxy，获取订阅使用，结尾要带的 /
 # github-proxy: "https://ghfast.top/"
 github-proxy: ""

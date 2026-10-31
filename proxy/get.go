@@ -7,6 +7,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	proxyDialer "golang.org/x/net/proxy"
 	"io"
 	"log/slog"
 	"net"
@@ -257,21 +258,9 @@ func GetDateFromSubs(subUrl string) ([]byte, error) {
 	}
 	var lastErr error
 
-	transport := &http.Transport{
-		Proxy: http.ProxyFromEnvironment,
-		TLSClientConfig: &tls.Config{
-			InsecureSkipVerify: true,
-		},
-		ForceAttemptHTTP2:     true,
-		MaxIdleConns:          100,
-		IdleConnTimeout:       90 * time.Second,
-		TLSHandshakeTimeout:   10 * time.Second,
-		ExpectContinueTimeout: 1 * time.Second,
-	}
-	// Route DNS through the configured mihomo resolver so subscription domains aren't leaked to system DNS.
-	// Only when user enabled custom DNS — keeps default behavior unchanged for existing users.
-	if config.GlobalConfig.DNS.Enable {
-		transport.DialContext = newMihomoDialer(time.Duration(timeout) * time.Second)
+	transport, err := newSubscriptionTransport(time.Duration(timeout) * time.Second)
+	if err != nil {
+		return nil, err
 	}
 	client := &http.Client{
 		Timeout:   time.Duration(timeout) * time.Second,
@@ -316,6 +305,45 @@ func GetDateFromSubs(subUrl string) ([]byte, error) {
 	}
 
 	return nil, fmt.Errorf("重试%d次后失败: %w", maxRetries, lastErr)
+}
+
+// newSubscriptionTransport builds the HTTP transport used for subscription downloads.
+// An explicit SOCKS5 proxy takes precedence over the configured direct DNS dialer;
+// the SOCKS server then resolves the subscription host on behalf of the client.
+func newSubscriptionTransport(dialTimeout time.Duration) (*http.Transport, error) {
+	transport := &http.Transport{
+		Proxy: http.ProxyFromEnvironment,
+		TLSClientConfig: &tls.Config{
+			InsecureSkipVerify: true,
+		},
+		ForceAttemptHTTP2:     true,
+		MaxIdleConns:          100,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+	}
+
+	if config.GlobalConfig.Socks5Proxy != "" {
+		proxyURL, err := u.Parse(config.GlobalConfig.Socks5Proxy)
+		if err != nil {
+			return nil, fmt.Errorf("无效的 SOCKS5 代理 URL: %w", err)
+		}
+		dialer, err := proxyDialer.FromURL(proxyURL, proxyDialer.Direct)
+		if err != nil {
+			return nil, fmt.Errorf("创建 SOCKS5 代理失败: %w", err)
+		}
+		contextDialer, ok := dialer.(proxyDialer.ContextDialer)
+		if !ok {
+			return nil, fmt.Errorf("SOCKS5 代理不支持 context 拨号")
+		}
+		transport.Proxy = nil
+		transport.DialContext = contextDialer.DialContext
+	} else if config.GlobalConfig.DNS.Enable {
+		// Route DNS through mihomo's resolver when no SOCKS5 proxy is set.
+		transport.DialContext = newMihomoDialer(dialTimeout)
+	}
+
+	return transport, nil
 }
 
 // newMihomoDialer returns a DialContext that resolves via mihomo's global resolver
